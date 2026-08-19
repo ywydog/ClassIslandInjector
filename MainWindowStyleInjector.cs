@@ -1756,7 +1756,21 @@ internal sealed class MainWindowStyleInjector : IDisposable
             .FirstOrDefault(x => x.Name == HostContract.BackgroundBorder && x.IsVisible && x.Bounds.Width > 0 && x.Bounds.Height > 0);
         if (background == null)
         {
-            host.IsVisible = false;
+            // 找不到可见的整行底色卡片（分体模式下宿主隐藏了 BackgroundBorder）：
+            // 降级为使用该行模板 GridRoot 自身的边界，让底纹/频谱仍能跟随这行内容显示。
+            if (gridRoot.Bounds.Width <= 0 || gridRoot.Bounds.Height <= 0)
+            {
+                host.IsVisible = false;
+                return;
+            }
+
+            host.IsVisible = true;
+            host.Width = gridRoot.Bounds.Width;
+            host.Height = gridRoot.Bounds.Height;
+            host.HorizontalAlignment = HorizontalAlignment.Left;
+            host.VerticalAlignment = VerticalAlignment.Top;
+            host.Margin = new Thickness();
+            UpdateTextureClip(host);
             return;
         }
 
@@ -1786,10 +1800,27 @@ internal sealed class MainWindowStyleInjector : IDisposable
             return;
         }
 
-        var borders = descendants.OfType<Border>()
+        // 优先贴「各行可见的背景卡片」边界；若无可见卡片（分体模式下宿主隐藏了
+        // BackgroundBorder），退化为「主界面各行模板 GridRoot」的并集边界，把底图
+        // 锚在当前实际显示的那片行内容上，避免溢出整个窗口或空置。
+        var visibleBorders = descendants.OfType<Border>()
             .Where(x => x.Name == HostContract.BackgroundBorder && x.IsVisible && x.Bounds.Width > 0 && x.Bounds.Height > 0)
             .ToArray();
-        if (borders.Length == 0)
+        Control[] targets;
+        if (visibleBorders.Length > 0)
+        {
+            targets = visibleBorders;
+        }
+        else
+        {
+            targets = descendants
+                .OfType<Grid>()
+                .Where(x => x.Name == HostContract.GridRoot &&
+                            x.FindAncestorOfType<Control>()?.GetType().FullName == HostContract.MainWindowLineTypeName)
+                .ToArray();
+        }
+
+        if (targets.Length == 0)
         {
             return;
         }
@@ -1798,10 +1829,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
         var minY = double.MaxValue;
         var maxX = double.MinValue;
         var maxY = double.MinValue;
-        foreach (var border in borders)
+        foreach (var control in targets)
         {
-            var topLeft = border.TranslatePoint(new Point(0, 0), parent);
-            var bottomRight = border.TranslatePoint(new Point(border.Bounds.Width, border.Bounds.Height), parent);
+            var topLeft = control.TranslatePoint(new Point(0, 0), parent);
+            var bottomRight = control.TranslatePoint(new Point(control.Bounds.Width, control.Bounds.Height), parent);
             if (topLeft == null || bottomRight == null)
             {
                 continue;
@@ -4296,10 +4327,14 @@ internal sealed class MainWindowStyleInjector : IDisposable
         // 全屏底图模式：删除底色、边框与阴影，让全屏图片完全接管背景。
         var fullscreenActive = HasFullscreenLayer();
 
+        // 以「可见性」为事实自动适配一体/分体/多行：分体模式下宿主会把整行
+        // BackgroundBorder / BackgroundBorderOverlayMask 置为不可见（IsIslandSeperated），
+        // 此时若仍写入卡片底色/边框只会写到隐藏层上毫无效果，这里直接跳过不可见的卡片。
+        // OverlayMask（提醒遮罩）不参与宿主分体隐藏，始终保留。
         foreach (var borderControl in _mainWindow.GetVisualDescendants().OfType<Border>()
-                     .Where(x => x.Name == HostContract.BackgroundBorder ||
-                                 x.Name == HostContract.BackgroundBorderOverlayMask ||
-                                 x.Name == HostContract.OverlayMask))
+                     .Where(x => x.Name == HostContract.OverlayMask ||
+                                 ((x.Name == HostContract.BackgroundBorder ||
+                                   x.Name == HostContract.BackgroundBorderOverlayMask) && x.IsVisible)))
         {
             var originalCornerRadius = borderControl.CornerRadius;
             var originalBackground = borderControl.Background;

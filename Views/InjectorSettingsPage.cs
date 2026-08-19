@@ -828,12 +828,11 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         {
             panel.Children.Add(new InfoBar
             {
-                Severity = InfoBarSeverity.Warning,
+                Severity = InfoBarSeverity.Informational,
                 Title = "检测到分体主界面",
-                Message = "本插件暂不支持 ClassIsland 的分体主界面模式，请关闭分体主界面。",
+                Message = "分体主界面模式下，整行卡片（底色/边框/底纹）样式不会生效（宿主会为每个组件独立成卡），其余功能（圆角、阴影、动态颜色、动画、提醒特效、壁纸）正常。",
                 IsOpen = true,
-                IsClosable = false,
-                ActionButton = Button("去关闭分体主界面", OpenAppearanceSettings)
+                IsClosable = false
             });
         }
         if (MainWindowStyleInjector.IsMultiLineMode())
@@ -1617,20 +1616,6 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         catch (Exception ex)
         {
             _status.Text = $"重启失败：{ex.Message}";
-        }
-    }
-
-    /// <summary>打开 ClassIsland 设置窗口并导航到「外观」页（含分体主界面开关）。</summary>
-    private void OpenAppearanceSettings()
-    {
-        try
-        {
-            IAppHost.TryGetService<IUriNavigationService>()
-                ?.Navigate(new Uri("classisland://app/settings/appearance"));
-        }
-        catch
-        {
-            _status.Text = "无法打开 ClassIsland 设置页。";
         }
     }
 
