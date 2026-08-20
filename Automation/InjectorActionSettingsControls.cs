@@ -297,13 +297,13 @@ public sealed class SwitchPresetActionSettingsControl : ActionSettingsControlBas
             Content = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "把当前全部设置保存为命名预设：" }, input } },
             PrimaryButtonText = "保存",
             CloseButtonText = "取消",
-            DefaultButton = FluentAvalonia.UI.Controls.ContentDialogButton.Primary
+            DefaultButton = FluentAvalonia.UI.Controls.FAContentDialogButton.Primary
         };
         // 以承载本控件的窗口为宿主：无参 ShowAsync() 会挂到当前激活窗口（可能是主界面）。
         var result = await (TopLevel.GetTopLevel(this) is Window host
             ? dialog.ShowAsync(host)
             : dialog.ShowAsync());
-        if (result != FluentAvalonia.UI.Controls.ContentDialogResult.Primary)
+        if (result != FluentAvalonia.UI.Controls.FAContentDialogResult.Primary)
         {
             return null;
         }

@@ -252,7 +252,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         Height = 800;
         MinWidth = 980;
         MinHeight = 640;
-        SystemDecorations = SystemDecorations.Full;
+        WindowDecorations = WindowDecorations.Full;
         // 在 Show 之前设置透明级别启用 Mica（不走宿主 EnableMicaWindow，其在 Loaded 才设置、
         // 太晚会整窗半透明看不清）；用半透明主题基底分层，侧栏和画布再使用独立表面，
         // 避免深色主题整窗一片灰。
@@ -2559,7 +2559,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             _dragPreviewHost = host;
             _dragPreviewWindow = new Window
             {
-                SystemDecorations = SystemDecorations.None,
+                WindowDecorations = WindowDecorations.None,
                 ShowInTaskbar = false,
                 ShowActivated = false,
                 CanResize = false,
@@ -3193,7 +3193,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     {
         var button = new FACommandBarButton
         {
-            FAIconSource = new FluentIconSource(glyph),
+            IconSource = new FluentIconSource(glyph),
             Label = label
         };
         // 按压缩放反馈（与 FAUI 自带的按压态叠加，更灵动）。

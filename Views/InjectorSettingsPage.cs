@@ -1208,7 +1208,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         var manifest = Plugin.Manifest;
         panel.Children.Add(new FASettingsExpander
         {
-            FAIconSource = new FluentIconSource("\uE9E4"),
+            IconSource = new FluentIconSource("\uE9E4"),
             Header = manifest?.Name ?? "ClassIsland 样式注入器",
             Description = manifest?.Description ?? "以运行时注入和可热重载 Avalonia 样式表深度重塑 ClassIsland 主界面。",
             IsExpanded = true,
@@ -2344,7 +2344,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         var expander = new FASettingsExpander
         {
-            FAIconSource = new FluentIconSource(glyph),
+            IconSource = new FluentIconSource(glyph),
             Header = header,
             Description = description,
             Footer = footer
@@ -2362,7 +2362,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     {
         var group = new FASettingsExpander
         {
-            FAIconSource = new FluentIconSource(glyph),
+            IconSource = new FluentIconSource(glyph),
             Header = header,
             Description = description,
             IsExpanded = false

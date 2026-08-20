@@ -31,7 +31,7 @@ internal sealed class MarqueeOverlayWindow : Window
 
     public MarqueeOverlayWindow()
     {
-        SystemDecorations = SystemDecorations.None;
+        WindowDecorations = WindowDecorations.None;
         ShowInTaskbar = false;
         ShowActivated = false;
         Topmost = true;

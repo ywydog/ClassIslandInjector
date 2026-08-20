@@ -3176,19 +3176,20 @@ internal sealed class WallpaperLayerCanvas : UserControl
     /// <summary>拖拽悬停：仅文件（图片）显示可放置。</summary>
     private void StageOnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = e.Data.Contains(DataFormats.Files) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.DragEffects = e.DataTransfer.Formats.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
     /// <summary>把拖入的图片文件添加为画布上的图片图层（位置 = 拖放点，尺寸按图片比例自适应）。</summary>
     private void StageOnDrop(object? sender, DragEventArgs e)
     {
-        if (!e.Data.Contains(DataFormats.Files))
+        if (!e.DataTransfer.Formats.Contains(DataFormat.File))
         {
             return;
         }
 
-        var file = e.Data.GetFiles()?.FirstOrDefault();
+        var files = e.DataTransfer.TryGetFiles();
+        var file = files?.FirstOrDefault();
         var path = file?.TryGetLocalPath();
         if (string.IsNullOrEmpty(path))
         {
