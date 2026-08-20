@@ -132,6 +132,12 @@ internal static class HostContract
     /// <summary>注入时加到主界面根的样式类名。</summary>
     public static string InjectorRootClass { get; private set; } = "classisland-injector-root";
 
+    /// <summary>
+    /// 宿主「背景卡片」样式类名（line-background）：一体模式是整行按钮卡（BackgroundBorder），
+    /// 分体模式是每个根组件独立的小卡背景。底色/边框注入以此为依据，两种模式都命中可见卡片。
+    /// </summary>
+    public static string LineBackgroundClass { get; private set; } = "line-background";
+
     // ---- 伪类 ----
 
     /// <summary>提醒遮罩进入伪类。</summary>
@@ -197,6 +203,7 @@ internal static class HostContract
 
         ApplyString(catalog.ClassNames, nameof(InjectorWindowClass), v => InjectorWindowClass = v);
         ApplyString(catalog.ClassNames, nameof(InjectorRootClass), v => InjectorRootClass = v);
+        ApplyString(catalog.ClassNames, nameof(LineBackgroundClass), v => LineBackgroundClass = v);
 
         ApplyString(catalog.PseudoClasses, nameof(PseudoMaskIn), v => PseudoMaskIn = v);
         ApplyString(catalog.PseudoClasses, nameof(PseudoMaskOut), v => PseudoMaskOut = v);
@@ -247,6 +254,7 @@ internal static class HostContract
         EffectControlsProperty = "EffectControls";
         InjectorWindowClass = "classisland-injector";
         InjectorRootClass = "classisland-injector-root";
+        LineBackgroundClass = "line-background";
         PseudoMaskIn = ":mask-in";
         PseudoMaskOut = ":mask-out";
         PrepareOnClassChannelId = new Guid("CDDFE7FF-B904-4C73-B458-82793B2F66E9");

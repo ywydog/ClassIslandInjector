@@ -259,6 +259,7 @@ public sealed class ContractCatalog
         // ---- 样式类名 ----
         catalog.ClassNames["InjectorWindowClass"] = new("classisland-injector", "注入样式类（窗口）");
         catalog.ClassNames["InjectorRootClass"] = new("classisland-injector-root", "注入样式类（主界面根）");
+        catalog.ClassNames["LineBackgroundClass"] = new("line-background", "背景卡片样式类（一体整行/分体组件卡底）");
 
         // ---- GUID ----
         catalog.Guids["PrepareOnClassChannelId"] = new("CDDFE7FF-B904-4C73-B458-82793B2F66E9", "即将上课倒计时频道");

@@ -181,6 +181,10 @@
     "InjectorRootClass": {
       "value": "classisland-injector-root",
       "feature": "注入样式类（主界面根）"
+    },
+    "LineBackgroundClass": {
+      "value": "line-background",
+      "feature": "背景卡片样式类（一体整行/分体组件卡底）"
     }
   },
   "guids": {

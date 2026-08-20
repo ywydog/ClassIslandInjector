@@ -1488,7 +1488,9 @@ internal sealed class MainWindowStyleInjector : IDisposable
 
         foreach (var (borderControl, backgroundBrush, borderBrush) in _decorations)
         {
-            if (borderControl.Name == HostContract.BackgroundBorder && backgroundBrush != null)
+            // 只要有底色画刷就更新（一体整行卡与分体组件小卡都会被更新；
+            // OverlayMask 未设底色画刷，天然跳过）。
+            if (backgroundBrush != null)
             {
                 UpdateBrushColor(backgroundBrush, background);
             }
@@ -4304,6 +4306,24 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _hostShapeCaptured = false;
     }
 
+    /// <summary>
+    /// Border 是否位于宿主「提醒 overlay 视图」（GridOverlay）内部。
+    /// GridOverlay 在分体时其背衬 line-background Border 可见，但它属于提醒 overlay，
+    /// 不应被当作常驻卡片上底色/边框，否则会覆盖提醒的 accent 遮罩背衬。
+    /// </summary>
+    private static bool IsInsideGridOverlay(Visual visual)
+    {
+        for (Visual? cur = visual.Parent as Visual; cur != null; cur = cur.Parent as Visual)
+        {
+            if (cur is Grid grid && grid.Name == HostContract.GridOverlay)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void ApplyDecorations()
     {
         RestoreDecorations();
@@ -4327,14 +4347,19 @@ internal sealed class MainWindowStyleInjector : IDisposable
         // 全屏底图模式：删除底色、边框与阴影，让全屏图片完全接管背景。
         var fullscreenActive = HasFullscreenLayer();
 
-        // 以「可见性」为事实自动适配一体/分体/多行：分体模式下宿主会把整行
-        // BackgroundBorder / BackgroundBorderOverlayMask 置为不可见（IsIslandSeperated），
-        // 此时若仍写入卡片底色/边框只会写到隐藏层上毫无效果，这里直接跳过不可见的卡片。
-        // OverlayMask（提醒遮罩）不参与宿主分体隐藏，始终保留。
-        foreach (var borderControl in _mainWindow.GetVisualDescendants().OfType<Border>()
-                     .Where(x => x.Name == HostContract.OverlayMask ||
-                                 ((x.Name == HostContract.BackgroundBorder ||
-                                   x.Name == HostContract.BackgroundBorderOverlayMask) && x.IsVisible)))
+        // 卡片承载层：以「宿主 line-background 样式类 + 可见性」为统一判据——
+        // 一体模式下命中整行卡（BackgroundBorder），分体模式下命中每个组件独立的小卡背景
+        // （宿主同样使用 line-background 类）。同时排除位于 GridOverlay 内的 line-background：
+        // 那是宿主「提醒 overlay 视图」的背衬，分体时可见，若给它涂底色/边框会覆盖提醒的
+        // accent 遮罩背衬。OverlayMask（提醒遮罩主体）与可见的 BackgroundBorderOverlayMask
+        // 为保持非分体行为一致仍纳入装饰。
+        var cards = _mainWindow.GetVisualDescendants().OfType<Border>()
+            .Where(x => x.Name == HostContract.OverlayMask ||
+                        (x.IsVisible && !IsInsideGridOverlay(x) &&
+                         (x.Classes.Contains(HostContract.LineBackgroundClass) ||
+                          x.Name == HostContract.BackgroundBorderOverlayMask)))
+            .ToArray();
+        foreach (var borderControl in cards)
         {
             var originalCornerRadius = borderControl.CornerRadius;
             var originalBackground = borderControl.Background;
@@ -4353,7 +4378,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
             // 让背景样式、内容裁切与遮罩全部同步到同一圆角。
 
             IBrush? backgroundBrush = null;
-            if (borderControl.Name == HostContract.BackgroundBorder)
+            // 只给确实承载背景的卡片上底色：一体整行卡（BackgroundBorder，本迭代命名仍命中）
+            // 与分体组件小卡（带 line-background 类但无背景相关命名）都应涂底色。
+            if (borderControl.Name == HostContract.BackgroundBorder ||
+                borderControl.Classes.Contains(HostContract.LineBackgroundClass))
             {
                 if (fullscreenActive)
                 {
