@@ -4,7 +4,7 @@ description: 以运行时注入和可热重载 Avalonia 样式表深度重塑 Cl
 entranceAssembly: "ClassIslandInjector.dll"
 icon: icon.png
 url: https://github.com/BSOD-MEMZ/ClassIslandInjector
-apiVersion: 2.0.0.0
+apiVersion: 2.2.0.0
 version: 1.1.0.3
 author: xxt8582753
 repoOwner: BSOD-MEMZ

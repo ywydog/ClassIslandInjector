@@ -134,9 +134,9 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     /// <summary>图层常规设置组（图层工具时显示；选区/画笔工具时隐藏）。</summary>
     private Control _layerPanel = null!;
     /// <summary>命令栏滤镜按钮（仅选中图片图层时可用）。</summary>
-    private CommandBarButton _hslFilterButton = null!;
-    private CommandBarButton _brightnessFilterButton = null!;
-    private CommandBarButton _blurFilterButton = null!;
+    private FACommandBarButton _hslFilterButton = null!;
+    private FACommandBarButton _brightnessFilterButton = null!;
+    private FACommandBarButton _blurFilterButton = null!;
     // 形状图层检查器
     private readonly ComboBox _shapeTypeBox = new() { MinWidth = 140, Name = "EditorShapeType" };
     private readonly ColorPicker _shapeFillPicker = ColorPicker();
@@ -191,11 +191,11 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     /// <summary>舞台 + 右侧栏所在的主体网格（提升为字段以在窗口缩放时约束其高度）。</summary>
     private Grid _body = null!;
     /// <summary>命令栏撤销/重做按钮（按栈状态启停）。</summary>
-    private CommandBarButton _undoButton = null!;
-    private CommandBarButton _redoButton = null!;
+    private FACommandBarButton _undoButton = null!;
+    private FACommandBarButton _redoButton = null!;
     /// <summary>命令栏组合/取消组合按钮（按选中状态启停）。</summary>
-    private CommandBarButton _groupButton = null!;
-    private CommandBarButton _ungroupButton = null!;
+    private FACommandBarButton _groupButton = null!;
+    private FACommandBarButton _ungroupButton = null!;
     /// <summary>图层面板操作按钮（按选中状态启停；效果仅背景可用）。</summary>
     private Button _newLayerButton = null!;
     /// <summary>图层面板「新建空白图层」按钮（始终可用）。</summary>
@@ -464,22 +464,22 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         _hslFilterButton = CommandButton("\uE51E", "色相 / 饱和度", "打开滤镜窗口：逐像素调整选中图片图层的色相、饱和度与明度（含滤镜预设）", OpenHslAdjustWindow);
         _brightnessFilterButton = CommandButton("\uE2BC", "亮度 / 对比度", "打开滤镜窗口：逐像素调整选中图片图层的亮度与对比度（含滤镜预设）", OpenBrightnessContrastWindow);
         _blurFilterButton = CommandButton("\uE20B", "高斯模糊", "打开滤镜窗口：调整选中图片图层的高斯模糊半径", OpenBlurAdjustWindow);
-        var commandBar = new CommandBar
+        var commandBar = new FACommandBar
         {
-            DefaultLabelPosition = CommandBarDefaultLabelPosition.Right,
+            DefaultLabelPosition = FACommandBarDefaultLabelPosition.Right,
             PrimaryCommands =
             {
                 addImageButton,
-                new CommandBarSeparator(),
+                new FACommandBarSeparator(),
                 _undoButton,
                 _redoButton,
-                new CommandBarSeparator(),
+                new FACommandBarSeparator(),
                 _groupButton,
                 _ungroupButton,
-                new CommandBarSeparator(),
+                new FACommandBarSeparator(),
                 CommandButton("\uE62F", "重置主界面尺寸", "把主界面预览尺寸恢复为 ClassIsland 实际尺寸", ResetIslandSize),
                 CommandButton("\uE92A", "棋盘格配色", "设置画布背景棋盘格：跟随主题自动按深浅色选择，或自定义两种颜色", OpenCheckerboardSettings),
-                new CommandBarSeparator(),
+                new FACommandBarSeparator(),
                 _hslFilterButton,
                 _brightnessFilterButton,
                 _blurFilterButton,
@@ -810,7 +810,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             var hint = canvasLayers.Count > 0 && vectorLayers.Count == 0
                 ? "画布图层栅格化后，会保留整张画布内容转为普通图片图层，此后可移动 / 缩放并显示在主界面上（主界面显示其中主界面区域部分）。"
                 : "栅格化后将被渲染成位图，从此当作图片图层处理，不能再编辑矢量。";
-            var dialog = new ContentDialog
+            var dialog = new FAContentDialog
             {
                 Title = "栅格化图层",
                 Content = new StackPanel
@@ -824,10 +824,10 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                 },
                 PrimaryButtonText = "栅格化",
                 CloseButtonText = "取消",
-                DefaultButton = ContentDialogButton.Close
+                DefaultButton = FAContentDialogButton.Close
             };
             var result = await dialog.ShowAsync(topLevel);
-            if (result != ContentDialogResult.Primary)
+            if (result != FAContentDialogResult.Primary)
             {
                 return;
             }
@@ -1112,13 +1112,13 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                 SettingsRow("棋盘格颜色 2", color2)
             }
         };
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "画布棋盘格配色",
             Content = panel,
             PrimaryButtonText = "完成",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
+            DefaultButton = FAContentDialogButton.Primary
         };
         await dialog.ShowAsync(topLevel);
     }
@@ -1399,16 +1399,16 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel != null)
                 {
-                    var dialog = new ContentDialog
+                    var dialog = new FAContentDialog
                     {
                         Title = "实验性功能警告",
                         Content = "「扩展到整个显示框架」是实验性功能：启用后该图片会铺满整个 ClassIsland 主界面，并临时隐藏底色、边框与阴影。\n\n若图片比例与主界面不一致，请务必开启「九宫格切图」并对图片进行切图，防止拉伸变形。确定要启用吗？",
                         PrimaryButtonText = "我已知晓并启用",
                         CloseButtonText = "取消",
-                        DefaultButton = ContentDialogButton.Close
+                        DefaultButton = FAContentDialogButton.Close
                     };
                     var result = await dialog.ShowAsync(topLevel);
-                    if (result != ContentDialogResult.Primary)
+                    if (result != FAContentDialogResult.Primary)
                     {
                         _fullscreenToggle.IsChecked = false;
                         return;
@@ -2056,7 +2056,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                 if (topLevel != null)
                 {
                     var dismiss = new CheckBox { Content = "以后不再提醒" };
-                    var dialog = new ContentDialog
+                    var dialog = new FAContentDialog
                     {
                         Title = "存在未栅格化的画布图层",
                         Content = new StackPanel
@@ -2074,10 +2074,10 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                         },
                         PrimaryButtonText = "知道了",
                         CloseButtonText = "取消保存",
-                        DefaultButton = ContentDialogButton.Primary
+                        DefaultButton = FAContentDialogButton.Primary
                     };
                     var result = await dialog.ShowAsync(topLevel);
-                    if (result != ContentDialogResult.Primary)
+                    if (result != FAContentDialogResult.Primary)
                     {
                         return;
                     }
@@ -2158,22 +2158,22 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         }
 
         // 让用户明确选择图片来源：从文件选择，或使用内置示例图片（取消则不添加）。
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "添加图片图层",
             Content = "选择一张图片文件作为新的底图图层，或使用一张内置的示例图片。",
             PrimaryButtonText = "从文件选择",
             SecondaryButtonText = "使用示例图片",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
+            DefaultButton = FAContentDialogButton.Primary
         };
         var result = await dialog.ShowAsync(topLevel);
         switch (result)
         {
-            case ContentDialogResult.Primary:
+            case FAContentDialogResult.Primary:
                 await PickImageFromFileAsync(topLevel);
                 break;
-            case ContentDialogResult.Secondary:
+            case FAContentDialogResult.Secondary:
                 AddLayerFromPath(Path.Combine(InjectorRuntime.PluginDirectory, "Assets", "editorbackground.jpg"));
                 break;
             // None（取消）：不添加。
@@ -3152,27 +3152,27 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         }
 
         e.Cancel = true;
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "保存更改？",
             Content = "底图图层编辑器中有尚未保存的更改。",
             PrimaryButtonText = "保存",
             SecondaryButtonText = "不保存",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
+            DefaultButton = FAContentDialogButton.Primary
         };
         // 显式传入本窗口的 TopLevel：多窗口/窗口分离时无参重载可能找不到根而崩溃。
         var topLevel = TopLevel.GetTopLevel(this);
         var result = topLevel != null
             ? await dialog.ShowAsync(topLevel)
-            : ContentDialogResult.None;
-        if (result == ContentDialogResult.Primary)
+            : FAContentDialogResult.None;
+        if (result == FAContentDialogResult.Primary)
         {
             Save();
             _dirty = false;
             Close();
         }
-        else if (result == ContentDialogResult.Secondary)
+        else if (result == FAContentDialogResult.Secondary)
         {
             _dirty = false;
             Close();
@@ -3189,11 +3189,11 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     }
 
     /// <summary>图标 + 文字按钮（如「＋ 添加图片图层」）。</summary>
-    private static CommandBarButton CommandButton(string glyph, string label, string tooltip, Action action)
+    private static FACommandBarButton CommandButton(string glyph, string label, string tooltip, Action action)
     {
-        var button = new CommandBarButton
+        var button = new FACommandBarButton
         {
-            IconSource = new FluentIconSource(glyph),
+            FAIconSource = new FluentIconSource(glyph),
             Label = label
         };
         // 按压缩放反馈（与 FAUI 自带的按压态叠加，更灵动）。

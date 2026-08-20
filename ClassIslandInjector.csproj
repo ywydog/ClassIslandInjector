@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+      <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ClassIslandInjector</AssemblyName>
@@ -12,7 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ClassIsland.PluginSdk" Version="2.0.0.2">
+    <PackageReference Include="ClassIsland.PluginSdk" Version="2.1.1">
       <ExcludeAssets>runtime;native</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="MaterialColorUtilities" Version="0.3.0" />

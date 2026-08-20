@@ -68,10 +68,10 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private readonly ToggleSwitch _disableDegradationCheck = Toggle();
     private readonly ToggleSwitch _diagnosticLogging = Toggle();
     /// <summary>「降低视觉负担」需要隐藏说明的全部设置项/卡片及其原始说明。</summary>
-    private readonly List<SettingsExpander> _allExpanders = [];
-    private readonly List<SettingsExpanderItem> _allItems = [];
-    private readonly Dictionary<SettingsExpander, string?> _savedExpanderDescriptions = [];
-    private readonly Dictionary<SettingsExpanderItem, string?> _savedItemDescriptions = [];
+    private readonly List<FASettingsExpander> _allExpanders = [];
+    private readonly List<FASettingsExpanderItem> _allItems = [];
+    private readonly Dictionary<FASettingsExpander, string?> _savedExpanderDescriptions = [];
+    private readonly Dictionary<FASettingsExpanderItem, string?> _savedItemDescriptions = [];
     private readonly ComboBox _contractTableList = new()
     {
         MinWidth = 220,
@@ -80,18 +80,18 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private readonly TextBlock _contractCurrent = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
     private readonly TextBlock _contractStatus = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
     /// <summary>顶部「宿主点位失效」InfoBar（页面构建后按健康检查结果刷新）。</summary>
-    private InfoBar? _degradationInfoBar;
+    private FAInfoBar? _degradationInfoBar;
     /// <summary>顶部「插件版本过低」InfoBar（按所选对照表的最低插件版本要求刷新）。</summary>
-    private InfoBar? _pluginUpdateInfoBar;
+    private FAInfoBar? _pluginUpdateInfoBar;
     private readonly Spin _albumColorPollingInterval = Spinner(0.5, 120, 0.5);
     private readonly Spin _albumColorTransition = Spinner(0, 10, 0.1);
     /// <summary>SMTC 教学：教程定位/展开的分组（Name 供 TargetSelector 使用）。</summary>
-    private SettingsExpander _smtcDynamicGroup = null!;
-    private SettingsExpander _backgroundGroup = null!;
-    private SettingsExpander _textureGroup = null!;
-    private SettingsExpander _shadowGroup = null!;
-    private SettingsExpander _borderGroup = null!;
-    private SettingsExpander _wallpaperGroup = null!;
+    private FASettingsExpander _smtcDynamicGroup = null!;
+    private FASettingsExpander _backgroundGroup = null!;
+    private FASettingsExpander _textureGroup = null!;
+    private FASettingsExpander _shadowGroup = null!;
+    private FASettingsExpander _borderGroup = null!;
+    private FASettingsExpander _wallpaperGroup = null!;
     private readonly ToggleSwitch _gradient = Toggle();
     private readonly ColorPicker _gradientEndColor = ColorPicker();
     private readonly ComboBox _gradientDirection = Combo(GradientDirections);
@@ -126,19 +126,19 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private readonly Spin _wallpaperSlideshowInterval = Spinner(2, 3600, 1, "0");
     private readonly Spin _wallpaperBlur = Spinner(0, 60, 1);
     /// <summary>「打开图层编辑器」入口（仅专家模式显示）。</summary>
-    private SettingsExpanderItem _wallpaperEditorItem = null!;
+    private FASettingsExpanderItem _wallpaperEditorItem = null!;
     /// <summary>基础模式专属设置项（专家模式时整体隐藏）。</summary>
-    private SettingsExpanderItem _wallpaperSourceItem = null!;
-    private SettingsExpanderItem _wallpaperPathItem = null!;
-    private SettingsExpanderItem _wallpaperOpacityItem = null!;
-    private SettingsExpanderItem _wallpaperDisplayModeItem = null!;
-    private SettingsExpanderItem _wallpaperScaleItem = null!;
-    private SettingsExpanderItem _wallpaperOffsetXItem = null!;
-    private SettingsExpanderItem _wallpaperOffsetYItem = null!;
-    private SettingsExpanderItem _wallpaperBlurItem = null!;
-    private SettingsExpanderItem _wallpaperSlideshowItem = null!;
+    private FASettingsExpanderItem _wallpaperSourceItem = null!;
+    private FASettingsExpanderItem _wallpaperPathItem = null!;
+    private FASettingsExpanderItem _wallpaperOpacityItem = null!;
+    private FASettingsExpanderItem _wallpaperDisplayModeItem = null!;
+    private FASettingsExpanderItem _wallpaperScaleItem = null!;
+    private FASettingsExpanderItem _wallpaperOffsetXItem = null!;
+    private FASettingsExpanderItem _wallpaperOffsetYItem = null!;
+    private FASettingsExpanderItem _wallpaperBlurItem = null!;
+    private FASettingsExpanderItem _wallpaperSlideshowItem = null!;
     /// <summary>图层式底图状态提示（专家模式时显示图层数）。</summary>
-    private InfoBar? _wallpaperModeInfoBar;
+    private FAInfoBar? _wallpaperModeInfoBar;
 
     private readonly ComboBox _visibilityAnimation = Combo(VisibilityAnimations);
     private readonly Spin _visibilityDuration = Spinner(0.1, 10, 0.05);
@@ -404,12 +404,12 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     private const string SmtcTutorialPath = "classislandInjector.tutorials.smtc/prologue";
 
     /// <summary>「SMTC 动态取色」进阶教学入口 InfoBar（未完成时显示，点击按钮开始教学）。</summary>
-    private InfoBar _smtcTutorialInfoBar = null!;
+    private FAInfoBar _smtcTutorialInfoBar = null!;
 
     /// <summary>「放歌看效果」选择对话框是否正在显示（防重复弹出）。</summary>
     private bool _musicDialogShowing;
     /// <summary>「放歌看效果」选择对话框实例（点「我看到了」后自动关闭）。</summary>
-    private ContentDialog? _musicDialog;
+    private FAContentDialog? _musicDialog;
     /// <summary>当前「放歌看效果」句是否已弹过选择对话框（防句切换间隙误关后重弹）。</summary>
     private bool _musicDialogShown;
     /// <summary>当前打开的示例播放器窗口（点「我看到了」后自动关闭）。</summary>
@@ -660,11 +660,11 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     }
 
     /// <summary>用户展开分组时按 Tag 推进当前教学句。</summary>
-    private void WireTutorialExpander(SettingsExpander expander, string tag, Action? after = null)
+    private void WireTutorialExpander(FASettingsExpander expander, string tag, Action? after = null)
     {
         expander.PropertyChanged += (_, e) =>
         {
-            if (e.Property != SettingsExpander.IsExpandedProperty || !expander.IsExpanded || _suppressLivePreview || _suppressTutorialPush)
+            if (e.Property != FASettingsExpander.IsExpandedProperty || !expander.IsExpanded || _suppressLivePreview || _suppressTutorialPush)
             {
                 return;
             }
@@ -709,13 +709,13 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         }
 
         _musicDialogShowing = true;
-        ContentDialog? dialog = null;
-        dialog = new ContentDialog
+        FAContentDialog? dialog = null;
+        dialog = new FAContentDialog
         {
             Title = "放首歌试试效果",
             Content = BuildMusicChoicePanel(dialog),
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
+            DefaultButton = FAContentDialogButton.Close
         };
         dialog.Closed += (_, _) =>
         {
@@ -738,7 +738,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         }
     }
 
-    private Control BuildMusicChoicePanel(ContentDialog? dialog)
+    private Control BuildMusicChoicePanel(FAContentDialog? dialog)
     {
         var panel = new StackPanel { Spacing = 10 };
         panel.Children.Add(new TextBlock
@@ -753,7 +753,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         return panel;
     }
 
-    private static Button MusicOption(ContentDialog? dialog, string title, string description, Action action)
+    private static Button MusicOption(FAContentDialog? dialog, string title, string description, Action action)
     {
         var button = new Button
         {
@@ -826,9 +826,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         panel.Children.Add(new IconText { Glyph = "\uEC4A", Text = "样式注入器", Margin = new Thickness(0, 0, 0, 4) });
         if (MainWindowStyleInjector.IsSeparatedMode())
         {
-            panel.Children.Add(new InfoBar
+            panel.Children.Add(new FAInfoBar
             {
-                Severity = InfoBarSeverity.Informational,
+                Severity = FAInfoBarSeverity.Informational,
                 Title = "检测到分体主界面",
                 Message = "分体主界面模式下，整行卡片（底色/边框/底纹）样式不会生效（宿主会为每个组件独立成卡），其余功能（圆角、阴影、动态颜色、动画、提醒特效、壁纸）正常。",
                 IsOpen = true,
@@ -837,18 +837,18 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         }
         if (MainWindowStyleInjector.IsMultiLineMode())
         {
-            panel.Children.Add(new InfoBar
+            panel.Children.Add(new FAInfoBar
             {
-                Severity = InfoBarSeverity.Informational,
+                Severity = FAInfoBarSeverity.Informational,
                 Title = "检测到多行主界面",
                 Message = "本插件有极少数功能不支持多行主界面，但插件仍可继续运行。",
                 IsOpen = true,
                 IsClosable = false
             });
         }
-        _degradationInfoBar = new InfoBar
+        _degradationInfoBar = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Warning,
+            Severity = FAInfoBarSeverity.Warning,
             Title = "检测到宿主点位失效",
             Message = string.Empty,
             IsOpen = false,
@@ -856,9 +856,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         };
         panel.Children.Add(_degradationInfoBar);
         RefreshHealthInfoBar();
-        _pluginUpdateInfoBar = new InfoBar
+        _pluginUpdateInfoBar = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Warning,
+            Severity = FAInfoBarSeverity.Warning,
             Title = "插件版本过低",
             Message = string.Empty,
             IsOpen = false,
@@ -870,9 +870,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         panel.Children.Add(Setting("\uE813", "实时预览", "开启后，下方对设置项的修改会立即保存并应用到主界面。", _livePreview));
         if (!SystemCapabilities.SmtcAvailable)
         {
-            panel.Children.Add(new InfoBar
+            panel.Children.Add(new FAInfoBar
             {
-                Severity = InfoBarSeverity.Warning,
+                Severity = FAInfoBarSeverity.Warning,
                 Title = "当前系统不支持 SMTC 动态取色",
                 Message = $"检测到 Windows 版本过低（当前 build {Environment.OSVersion.Version.Build}，SMTC 需要 Windows 10 1809 / build 17763 或更高）。动态专辑取色、暂停恢复原色与 SMTC 专辑封面底图将无法工作，其余功能不受影响。",
                 IsOpen = true,
@@ -883,9 +883,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         panel.Children.Add(Setting("\uEDC7", "运行时注入", "启用后由插件接管主界面根节点的视觉效果。", _enabled));
 
         // SMTC 进阶教学入口：不自动弹出，未完成时用 InfoBar 提示用户可查看。
-        _smtcTutorialInfoBar = new InfoBar
+        _smtcTutorialInfoBar = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Informational,
+            Severity = FAInfoBarSeverity.Informational,
             Title = "进阶教学：SMTC 动态取色",
             Message = "让主界面的颜色跟着正在播放的音乐变，想试一试吗？",
             IsOpen = false,
@@ -937,9 +937,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         VisibleWhen(spectrumAutoWidthItem, _backgroundTextureType, BackgroundTexture.Spectrum);
         var wallpaperPathItem = Item("图片 / 文件夹", "底图文件或幻灯片文件夹的路径。", WallpaperPathFooter());
         var wallpaperSlideshowItem = Item("幻灯片间隔", "文件夹幻灯片切换间隔（秒）。", _wallpaperSlideshowInterval);
-        _wallpaperModeInfoBar = new InfoBar
+        _wallpaperModeInfoBar = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Informational,
+            Severity = FAInfoBarSeverity.Informational,
             Title = "已启用专家模式！",
             Message = string.Empty,
             IsOpen = false,
@@ -1066,9 +1066,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         VisibleWhen(cinematicFlashItem, _rippleType, RippleType.Cinematic);
         AutoSelectOnEnable(_rippleEnabled, _rippleType, RippleTypes);
         panel.Children.Add(rippleGroup);
-        var hanabiInfoBar = new InfoBar
+        var hanabiInfoBar = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Informational,
+            Severity = FAInfoBarSeverity.Informational,
             Title = "关于舞萌花火（Hanabi）效果",
             Message = "受当前技术限制，本插件无法实现类似 maimai でらっくす 的带光影的烟花效果，只能仿制经典旧版烟花效果。",
             IsOpen = true,
@@ -1163,18 +1163,18 @@ public sealed class InjectorSettingsPage : SettingsPageBase
             Text = "危险区域",
             Margin = new Thickness(0, 16, 0, 4)
         });
-        panel.Children.Add(new InfoBar
+        panel.Children.Add(new FAInfoBar
         {
-            Severity = InfoBarSeverity.Error,
+            Severity = FAInfoBarSeverity.Error,
             Title = "危险区域",
             Message = "以下操作会直接修改主界面外观或清除插件数据，请谨慎使用。",
             IsOpen = true,
             IsClosable = false
         });
         panel.Children.Add(Setting("\uE288", "打开可视化编辑器", "在独立窗口中像做 PPT 一样编辑 ClassIsland 主界面样式，但存在严重兼容性问题，已被弃用。", Button("打开编辑器", OpenVisualEditor)));
-        panel.Children.Add(new InfoBar
+        panel.Children.Add(new FAInfoBar
         {
-            Severity = InfoBarSeverity.Warning,
+            Severity = FAInfoBarSeverity.Warning,
             Title = "与 ClassIsland 原生设置重叠",
             Message = "不透明度、缩放与位置可在 ClassIsland 的外观页修改，在此覆盖可能与原生设置产生少量兼容性问题。",
             IsOpen = true,
@@ -1206,9 +1206,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
 
         AddSection(panel, "\uE9E4", "关于");
         var manifest = Plugin.Manifest;
-        panel.Children.Add(new SettingsExpander
+        panel.Children.Add(new FASettingsExpander
         {
-            IconSource = new FluentIconSource("\uE9E4"),
+            FAIconSource = new FluentIconSource("\uE9E4"),
             Header = manifest?.Name ?? "ClassIsland 样式注入器",
             Description = manifest?.Description ?? "以运行时注入和可热重载 Avalonia 样式表深度重塑 ClassIsland 主界面。",
             IsExpanded = true,
@@ -1221,18 +1221,18 @@ public sealed class InjectorSettingsPage : SettingsPageBase
             },
             Items =
             {
-                new SettingsExpanderItem
+                new FASettingsExpanderItem
                 {
                     Content = "作者",
                     Description = manifest?.Author ?? "未知",
                     Footer = string.IsNullOrEmpty(manifest?.Url) ? null : LinkButton("项目主页", manifest.Url)
                 },
-                new SettingsExpanderItem
+                new FASettingsExpanderItem
                 {
                     Content = "依赖",
                     Description = $"插件 ID：{manifest?.Id ?? "未知"} · 目标 ClassIsland API：{manifest?.ApiVersion ?? "未知"}"
                 },
-                new SettingsExpanderItem
+                new FASettingsExpanderItem
                 {
                     Content = "对一切违规补课和提前开学致以最强烈的谴责",
                     Footer = LinkButton("加入我们的行动", "https://xxtsoft.top/support/sekai/rescue")                       
@@ -1587,24 +1587,24 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     /// 而设置页打开时激活的常是 ClassIsland 主界面，对话框会挂到主界面窗口上
     /// （确认框卡在主界面、点不到），因此必须显式指定宿主。
     /// </summary>
-    private Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog) =>
+    private Task<FAContentDialogResult> ShowDialogAsync(FAContentDialog dialog) =>
         TopLevel.GetTopLevel(this) is Window host ? dialog.ShowAsync(host) : dialog.ShowAsync();
 
     /// <summary>重启 ClassIsland（确认后经宿主公开 API AppBase.Current.Restart 拉起新进程并退出）。</summary>
     private async void RestartClassIsland()
     {
         SaveAndApply();
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "确认重启 ClassIsland？",
             Content = "重启后插件设置将立即生效；未保存的 ClassIsland 系统设置可能会丢失。",
             PrimaryButtonText = "重启",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
+            DefaultButton = FAContentDialogButton.Close
         };
 
         var result = await ShowDialogAsync(dialog);
-        if (result != ContentDialogResult.Primary)
+        if (result != FAContentDialogResult.Primary)
         {
             return;
         }
@@ -1638,12 +1638,12 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         content.Children.Add(DialogParagraph("限制", true));
         content.Children.Add(DialogParagraph("需要 Windows 10 1809（build 17763）或更高版本；媒体应用需要支持 SMTC，主流播放器（网易云音乐、QQ 音乐、酷狗音乐、PotPlayer 等）和浏览器（最新版 Edge 等）大多支持"));
 
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "SMTC 与动态取色原理",
             Content = content,
             CloseButtonText = "知道了",
-            DefaultButton = ContentDialogButton.Close
+            DefaultButton = FAContentDialogButton.Close
         };
         await ShowDialogAsync(dialog);
     }
@@ -1684,17 +1684,17 @@ public sealed class InjectorSettingsPage : SettingsPageBase
 
     private async void DeleteAllData()
     {
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "确认删除所有数据？",
             Content = "将清除本插件的全部配置与数据，并把主界面恢复为原生状态。此操作不可恢复，执行后即可安全卸载插件。",
             PrimaryButtonText = "删除",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
+            DefaultButton = FAContentDialogButton.Close
         };
 
         var result = await ShowDialogAsync(dialog);
-        if (result != ContentDialogResult.Primary)
+        if (result != FAContentDialogResult.Primary)
         {
             return;
         }
@@ -1986,20 +1986,20 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         }
 
         e.Cancel = true;
-        var dialog = new ContentDialog
+        var dialog = new FAContentDialog
         {
             Title = "保存更改？",
             Content = "可视化编辑器中有尚未保存的更改。",
             PrimaryButtonText = "保存",
             SecondaryButtonText = "不保存",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
+            DefaultButton = FAContentDialogButton.Primary
         };
         // 宿主用正在关闭的编辑器窗口，而不是设置页/主界面。
         var result = sender is Window closingWindow
             ? await dialog.ShowAsync(closingWindow)
             : await ShowDialogAsync(dialog);
-        if (result == ContentDialogResult.Primary)
+        if (result == FAContentDialogResult.Primary)
         {
             SaveEditor();
             _editorDirty = false;
@@ -2008,7 +2008,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
                 w.Close();
             }
         }
-        else if (result == ContentDialogResult.Secondary)
+        else if (result == FAContentDialogResult.Secondary)
         {
             DiscardEditorEdits();
             _editorDirty = false;
@@ -2340,11 +2340,11 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         _status.Text = "已保存并应用。样式表有更改时会自动热重载。";
     }
 
-    private SettingsExpander Setting(string glyph, string header, string description, Control footer)
+    private FASettingsExpander Setting(string glyph, string header, string description, Control footer)
     {
-        var expander = new SettingsExpander
+        var expander = new FASettingsExpander
         {
-            IconSource = new FluentIconSource(glyph),
+            FAIconSource = new FluentIconSource(glyph),
             Header = header,
             Description = description,
             Footer = footer
@@ -2358,11 +2358,11 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         panel.Children.Add(new IconText { Glyph = glyph, Text = title, Margin = new Thickness(0, 16, 0, 4) });
     }
 
-    private SettingsExpander Group(string glyph, string header, string description, params SettingsExpanderItem[] items)
+    private FASettingsExpander Group(string glyph, string header, string description, params FASettingsExpanderItem[] items)
     {
-        var group = new SettingsExpander
+        var group = new FASettingsExpander
         {
-            IconSource = new FluentIconSource(glyph),
+            FAIconSource = new FluentIconSource(glyph),
             Header = header,
             Description = description,
             IsExpanded = false
@@ -2376,7 +2376,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         return group;
     }
 
-    private SettingsExpander SwitchableGroup(string glyph, string header, string description, ToggleSwitch toggle, params SettingsExpanderItem[] items)
+    private FASettingsExpander SwitchableGroup(string glyph, string header, string description, ToggleSwitch toggle, params FASettingsExpanderItem[] items)
     {
         var group = Group(glyph, header, description, items);
         group.Footer = toggle;
@@ -2388,9 +2388,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         return group;
     }
 
-    private SettingsExpanderItem Item(string header, string description, Control footer, ToggleSwitch? dependency = null)
+    private FASettingsExpanderItem Item(string header, string description, Control footer, ToggleSwitch? dependency = null)
     {
-        var item = new SettingsExpanderItem
+        var item = new FASettingsExpanderItem
         {
             Content = header,
             Description = description,

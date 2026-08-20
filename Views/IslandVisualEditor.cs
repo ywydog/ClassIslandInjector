@@ -607,9 +607,9 @@ internal sealed class IslandVisualEditorWindow : MyWindow
         };
         Grid.SetColumn(columnSplitter, 1);
         Grid.SetColumn(inspectorScroll, 2);
-        var dangerInfo = new InfoBar
+        var dangerInfo = new FAInfoBar
         {
-            Severity = InfoBarSeverity.Warning,
+            Severity = FAInfoBarSeverity.Warning,
             Title = "危险操作提示",
             Message = "可视化编辑器会直接改动主界面的外观与变形，操作不当可能导致布局异常或视觉混乱，出于安全考虑已禁用大部分功能且停止维护。",
             IsOpen = true,

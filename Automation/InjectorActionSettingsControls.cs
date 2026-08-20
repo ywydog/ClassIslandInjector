@@ -291,7 +291,7 @@ public sealed class SwitchPresetActionSettingsControl : ActionSettingsControlBas
     private async Task<string?> PromptPresetNameAsync()
     {
         var input = new TextBox { Watermark = "预设名称", MinWidth = 260 };
-        var dialog = new FluentAvalonia.UI.Controls.ContentDialog
+        var dialog = new FluentAvalonia.UI.Controls.FAContentDialog
         {
             Title = "保存为预设",
             Content = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "把当前全部设置保存为命名预设：" }, input } },
