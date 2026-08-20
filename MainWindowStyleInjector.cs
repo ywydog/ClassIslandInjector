@@ -2528,21 +2528,36 @@ internal sealed class MainWindowStyleInjector : IDisposable
         var borders = _mainWindow.GetVisualDescendants().OfType<Border>()
             .Where(x => x.Name == HostContract.BackgroundBorder && x.IsVisible && x.Bounds.Width > 0 && x.Bounds.Height > 0)
             .ToArray();
-        if (borders.Length == 0)
+        // 分体模式下无可见的整行 BackgroundBorder：降级为主界面各行模板 GridRoot 的并集，
+        // 让图层编辑器画布仍能取得与底图边界一致的合理尺寸。
+        Control[] targets;
+        if (borders.Length > 0)
+        {
+            targets = borders;
+        }
+        else
+        {
+            targets = _mainWindow.GetVisualDescendants().OfType<Grid>()
+                .Where(x => x.Name == HostContract.GridRoot &&
+                            x.FindAncestorOfType<Control>()?.GetType().FullName == HostContract.MainWindowLineTypeName)
+                .ToArray();
+        }
+
+        if (targets.Length == 0)
         {
             return null;
         }
 
-        // 各 Border 的 Bounds 相对各自父容器，坐标系不同（多行主界面下各行父容器各异）；
+        // 各 Border/Grid 的 Bounds 相对各自父容器，坐标系不同（多行主界面下各行父容器各异）；
         // 统一换算到主窗口坐标系后再求包围盒，避免多行模式下尺寸计算错误。
         var minX = double.MaxValue;
         var minY = double.MaxValue;
         var maxX = double.MinValue;
         var maxY = double.MinValue;
-        foreach (var border in borders)
+        foreach (var target in targets)
         {
-            var topLeft = border.TranslatePoint(new Point(0, 0), _mainWindow);
-            var bottomRight = border.TranslatePoint(new Point(border.Bounds.Width, border.Bounds.Height), _mainWindow);
+            var topLeft = target.TranslatePoint(new Point(0, 0), _mainWindow);
+            var bottomRight = target.TranslatePoint(new Point(target.Bounds.Width, target.Bounds.Height), _mainWindow);
             if (topLeft == null || bottomRight == null)
             {
                 continue;
