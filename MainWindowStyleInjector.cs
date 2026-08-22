@@ -712,13 +712,23 @@ internal sealed class MainWindowStyleInjector : IDisposable
             ConfigureNativeRipplePlayer(line);
             ObserveLine(line);
             UpdatePrepareOnClassOverlay(line);
-            var mask = GetMaskContentProperty(line.GetType())?.GetValue(line);
+            object? mask;
+            try
+            {
+                mask = GetMaskContentProperty(line.GetType())?.GetValue(line);
+            }
+            catch
+            {
+                // 宿主属性 getter 异常不得中止 50ms 状态轮询（否则底图/覆盖层全部停摆）。
+                mask = null;
+            }
+
             if (!_lineMasks.TryGetValue(line, out var previousMask))
             {
                 _lineMasks[line] = mask;
                 if (mask != null)
                 {
-                    TriggerEmphasis(mask);
+                    TriggerEmphasis(line, mask);
                 }
                 continue;
             }
@@ -728,7 +738,7 @@ internal sealed class MainWindowStyleInjector : IDisposable
                 _lineMasks[line] = mask;
                 if (mask != null)
                 {
-                    TriggerEmphasis(mask);
+                    TriggerEmphasis(line, mask);
                 }
             }
         }
@@ -737,6 +747,17 @@ internal sealed class MainWindowStyleInjector : IDisposable
         {
             RemovePrepareOnClassOverlay(line);
         }
+
+        // 清理已消失的 MainWindowLine（主题切换/分体切换/组件行增删会重建行容器）：
+        // 退订 PropertyChanged 并移除字典引用，避免旧行对象被永久强引用（泄漏 + 事件叠加）。
+        foreach (var line in _observedLines.Except(currentLines).ToArray())
+        {
+            line.PropertyChanged -= LineOnPropertyChanged;
+            _observedLines.Remove(line);
+            _lineMasks.Remove(line);
+            _nativeEffectPlayers.Remove(line);
+        }
+
         UpdatePrepareWarningOverlay();
         UpdatePreviewOverlayHostVisibility();
         SyncPrepareOnClassOverlayHosts();
@@ -803,12 +824,16 @@ internal sealed class MainWindowStyleInjector : IDisposable
                 else
                 {
                     // 无真实封面（暂停/停止/无缩略图）时显示占位专辑封面，保持图层可见。
+                    // （设置了「暂停/停止时隐藏」的图层随后在 LayoutWallpaperLayers 中被临时隐藏。）
                     foreach (var view in smtcLayers)
                     {
                         LoadLayerPlaceholder(view);
                     }
                 }
             }
+
+            // 播放状态变化后重排：应用「暂停/停止时隐藏」的临时隐藏与裁剪形状。
+            LayoutWallpaperLayers();
         }
         else if (_settings.WallpaperEnabled && _settings.WallpaperSource == WallpaperSource.SmtcAlbum)
         {
@@ -839,6 +864,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
             }
         }
     }
+
+    /// <summary>SMTC 图层是否因「暂停/停止时隐藏」而临时隐藏（运行时隐藏，不修改 Visible 设置）。</summary>
+    private bool IsSmtcHidden(WallpaperLayerItem layer) =>
+        layer.Source == WallpaperSource.SmtcAlbum && layer.SmtcHideWhenPaused && !_smtcPlaying;
 
     private void EnsureDynamicColorsInitialized()
     {
@@ -1604,6 +1633,14 @@ internal sealed class MainWindowStyleInjector : IDisposable
             }
 
             // 模式切换（简单 <-> 图层）：重建宿主子内容并清空旧视图。
+            // 先中止可能进行中的交叉淡化并释放退役位图：否则切到图层模式后
+            // _wallpaperLayers 为空而过渡仍激活，AdvanceWallpaperTransition 每 16ms
+            // 下标越界抛异常，导致全部瞬时动画冻结 + crash.log 刷屏。
+            _wallpaperTransitionActive = false;
+            _wallpaperRetiredBitmap?.Dispose();
+            _wallpaperRetiredBitmap = null;
+            _wallpaperRetiredStream?.Dispose();
+            _wallpaperRetiredStream = null;
             _wallpaperLayers.Clear();
             DisposeWallpaperLayerViews();
             _wallpaperCanvas = null;
@@ -2025,7 +2062,9 @@ internal sealed class MainWindowStyleInjector : IDisposable
             Canvas.SetTop(control, rect.Y);
             control.RenderTransform = new RotateTransform(layer.Rotation);
             control.Opacity = layer.Opacity;
-            control.IsVisible = layer.Visible;
+            control.IsVisible = layer.Visible && !IsSmtcHidden(layer);
+            // 图片图层的裁剪形状（从选区新建的裁剪图层，如 SMTC 形状图层）。
+            control.Clip = WallpaperLayerEffects.BuildClipGeometry(layer.ClipPath);
             if (control is Border host)
             {
                 // 效果：外层容器挂投影，内层图片挂高斯模糊（两效果可同时启用）。
@@ -3065,6 +3104,13 @@ internal sealed class MainWindowStyleInjector : IDisposable
 
     private void AdvanceWallpaperTransition()
     {
+        // 防御：图层被清空（模式切换/宿主重建）后过渡状态必须中止，否则下标越界。
+        if (_wallpaperLayers.Count < 2)
+        {
+            _wallpaperTransitionActive = false;
+            return;
+        }
+
         var duration = Math.Max(0.001, _settings.AlbumColorTransitionSeconds);
         var progress = Math.Clamp((DateTime.UtcNow - _wallpaperTransitionStart).TotalSeconds / duration, 0, 1);
         var eased = 1 - Math.Pow(1 - progress, 3);
@@ -3321,14 +3367,22 @@ internal sealed class MainWindowStyleInjector : IDisposable
 
     private static bool IsPrepareOnClassCountdown(Control line)
     {
-        var request = GetCurrentNotificationRequestProperty(line.GetType())?.GetValue(line);
-        if (request == null)
+        try
         {
+            var request = GetCurrentNotificationRequestProperty(line.GetType())?.GetValue(line);
+            if (request == null)
+            {
+                return false;
+            }
+
+            return GetChannelIdProperty(request.GetType())?.GetValue(request) is Guid channelId &&
+                   channelId == HostContract.PrepareOnClassChannelId;
+        }
+        catch
+        {
+            // 反射 getter 异常不得中止 OnStateTick 轮询。
             return false;
         }
-
-        return GetChannelIdProperty(request.GetType())?.GetValue(request) is Guid channelId &&
-               channelId == HostContract.PrepareOnClassChannelId;
     }
 
     private void RemovePrepareOnClassOverlay(Control line)
@@ -3466,16 +3520,18 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _lineMasks[line] = e.NewValue;
         if (e.NewValue != null)
         {
-            TriggerEmphasis(e.NewValue);
+            TriggerEmphasis(line, e.NewValue);
         }
     }
 
-    private void TriggerEmphasis(object mask)
+    private void TriggerEmphasis(Control line, object mask)
     {
-        // 宿主「启用提醒特效」总开关关闭时不再播放插件的强调动画/Ripple/流光，
-        // 与 CI 原生行为保持一致（宿主原生 Ripple 同样受该开关控制）。
-        if (!IsHostEffectEnabled())
+        // 宿主「启用提醒特效」总开关关闭，或该条通知自带的特效开关关闭时，
+        // 不再播放插件的强调动画/Ripple/流光，与宿主原生 Ripple 判断链一致
+        // （MainWindowLine: settings.IsNotificationEffectEnabled && AllowNotificationEffect）。
+        if (!IsHostEffectEnabled() || !IsLineNotificationEffectEnabled(line))
         {
+            LogEffectGateState(false, "宿主特效已关闭或该通知未启用特效，跳过强调/Ripple/流光");
             return;
         }
 
@@ -3914,23 +3970,31 @@ internal sealed class MainWindowStyleInjector : IDisposable
     private IList? TryGetFullScreenEffectHost(out Window? effectWindow)
     {
         effectWindow = null;
-        foreach (var player in _nativeEffectPlayers.Values)
+        try
         {
-            if (TryGetEffectControls(player, out effectWindow) is { } controls)
+            foreach (var player in _nativeEffectPlayers.Values)
             {
-                return controls;
+                if (TryGetEffectControls(player, out effectWindow) is { } controls)
+                {
+                    return controls;
+                }
+            }
+
+            // The public MainWindow property gives us a reliable path before the
+            // per-line player has been observed, avoiding the island-sized fallback
+            // window that used to crop the Hanabi centre ball.
+            var topmostEffectWindow = _mainWindow?.GetType()
+                .GetProperty(HostContract.TopmostEffectWindowProperty, BindingFlags.Instance | BindingFlags.Public)
+                ?.GetValue(_mainWindow);
+            if (TryGetEffectControls(topmostEffectWindow, out effectWindow) is { } controlsFromMainWindow)
+            {
+                return controlsFromMainWindow;
             }
         }
-
-        // The public MainWindow property gives us a reliable path before the
-        // per-line player has been observed, avoiding the island-sized fallback
-        // window that used to crop the Hanabi centre ball.
-        var topmostEffectWindow = _mainWindow?.GetType()
-            .GetProperty(HostContract.TopmostEffectWindowProperty, BindingFlags.Instance | BindingFlags.Public)
-            ?.GetValue(_mainWindow);
-        if (TryGetEffectControls(topmostEffectWindow, out effectWindow) is { } controlsFromMainWindow)
+        catch
         {
-            return controlsFromMainWindow;
+            // 宿主属性 getter 异常不得冒泡进提醒播放链（本方法在宿主通知分发中被调用）。
+            effectWindow = null;
         }
 
         return null;
@@ -3944,12 +4008,19 @@ internal sealed class MainWindowStyleInjector : IDisposable
             return null;
         }
 
-        var viewModel = player!.GetType().GetProperty(HostContract.ViewModelProperty, BindingFlags.Instance | BindingFlags.Public)
-            ?.GetValue(player);
-        if (viewModel?.GetType().GetProperty(HostContract.EffectControlsProperty, BindingFlags.Instance | BindingFlags.Public)
-                ?.GetValue(viewModel) is IList controls)
+        try
         {
-            return controls;
+            var viewModel = player!.GetType().GetProperty(HostContract.ViewModelProperty, BindingFlags.Instance | BindingFlags.Public)
+                ?.GetValue(player);
+            if (viewModel?.GetType().GetProperty(HostContract.EffectControlsProperty, BindingFlags.Instance | BindingFlags.Public)
+                    ?.GetValue(viewModel) is IList controls)
+            {
+                return controls;
+            }
+        }
+        catch
+        {
+            // 忽略：宿主结构变化时退化为不返回特效宿主。
         }
 
         effectWindow = null;
@@ -4202,15 +4273,17 @@ internal sealed class MainWindowStyleInjector : IDisposable
 
     /// <summary>
     /// 宿主是否启用提醒特效（设置页「启用提醒特效」总开关 Settings.AllowNotificationEffect）。
+    /// 优先从宿主 DI 的 SettingsService.Settings 读取（设置页绑定的实时对象），回退到 App.Settings。
     /// 宿主关闭特效时插件不再播放自己的提醒特效（强调动画/Ripple/流光/即将上课/上课警告），
     /// 与 CI 原生行为保持一致（宿主原生 Ripple 也受该开关控制）。
     /// 宿主设置不可得时按「已启用」处理，避免新版宿主结构变化时意外禁用插件特效。
     /// </summary>
     private bool IsHostEffectEnabled()
     {
-        var settings = GetHostSettings();
+        var settings = GetLiveHostSettings();
         if (settings == null)
         {
+            LogEffectGateState(true, "宿主设置不可得，按已启用处理");
             return true;
         }
 
@@ -4218,11 +4291,126 @@ internal sealed class MainWindowStyleInjector : IDisposable
         {
             _hostAllowEffectProperty ??= settings.GetType()
                 .GetProperty(HostContract.AllowNotificationEffectProperty, BindingFlags.Instance | BindingFlags.Public);
-            return _hostAllowEffectProperty?.GetValue(settings) is not bool enabled || enabled;
+            var value = _hostAllowEffectProperty?.GetValue(settings);
+            var enabled = value is not bool b || b;
+            LogEffectGateState(enabled, $"value={value}, settingsType={settings.GetType().FullName}");
+            return enabled;
+        }
+        catch (Exception ex)
+        {
+            LogEffectGateState(null, $"读取异常 {ex.Message}");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 优先取宿主 DI 的 SettingsService.Settings（设置页「启用提醒特效」绑定的实时对象，
+    /// 与宿主原生 Ripple 判断同一来源），失败时回退到 App.Settings。
+    /// </summary>
+    private object? GetLiveHostSettings()
+    {
+        try
+        {
+            var services = IAppHost.Host?.Services;
+            var settingsServiceType = Type.GetType("ClassIsland.Services.SettingsService, ClassIsland");
+            if (settingsServiceType == null)
+            {
+                return GetHostSettings();
+            }
+
+            var settingsService = services?.GetService(settingsServiceType);
+            var settings = settingsService?.GetType().GetProperty(HostContract.SettingsProperty)?.GetValue(settingsService);
+            if (settings != null)
+            {
+                return settings;
+            }
+        }
+        catch
+        {
+            // 回退到 App.Settings。
+        }
+
+        return GetHostSettings();
+    }
+
+    /// <summary>特效门控诊断日志：仅在状态变化或异常时写入 preview-debug.log。</summary>
+    private bool? _lastEffectGateEnabled;
+    private void LogEffectGateState(bool? enabled, string detail)
+    {
+        if (_lastEffectGateEnabled == enabled)
+        {
+            return;
+        }
+
+        _lastEffectGateEnabled = enabled;
+        DebugLog($"IsHostEffectEnabled={enabled?.ToString() ?? "异常"}（{detail}）");
+    }
+
+    /// <summary>
+    /// 该行当前通知是否启用了特效（对应宿主 MainWindowLine 判断链里的
+    /// settings.IsNotificationEffectEnabled）。解析逻辑与宿主
+    /// NotificationWorkerService.CreateTicket 一致：依次取 ChannelSettings →
+    /// ProviderSettings → RequestNotificationSettings 中第一个 IsSettingsEnabled 的为准，
+    /// 否则回退全局设置；请求/设置不可得时按「已启用」处理，避免误屏蔽插件特效。
+    /// </summary>
+    private bool IsLineNotificationEffectEnabled(Control line)
+    {
+        try
+        {
+            var request = GetCurrentNotificationRequestProperty(line.GetType())?.GetValue(line);
+            if (request == null)
+            {
+                return true;
+            }
+
+            var settings = ResolveEffectiveNotificationSettings(request) ?? GetLiveHostSettings();
+            if (settings == null)
+            {
+                return true;
+            }
+
+            return settings.GetType()
+                .GetProperty("IsNotificationEffectEnabled", BindingFlags.Instance | BindingFlags.Public)
+                ?.GetValue(settings) is not bool b || b;
         }
         catch
         {
             return true;
+        }
+    }
+
+    /// <summary>
+    /// 按宿主优先级取通知请求的有效 NotificationSettings：
+    /// ChannelSettings → ProviderSettings → RequestNotificationSettings，取第一个 IsSettingsEnabled 的。
+    /// 全都没有启用时返回 null（调用方回退全局设置）。
+    /// </summary>
+    private static object? ResolveEffectiveNotificationSettings(object request)
+    {
+        var requestType = request.GetType();
+        foreach (var name in new[] { "ChannelSettings", "ProviderSettings", "RequestNotificationSettings" })
+        {
+            var settings = requestType.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(request);
+            if (settings != null && IsNotificationSettingsEnabled(settings))
+            {
+                return settings;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsNotificationSettingsEnabled(object settings)
+    {
+        try
+        {
+            return settings.GetType()
+                .GetProperty("IsSettingsEnabled", BindingFlags.Instance | BindingFlags.Public)
+                ?.GetValue(settings) is true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -4613,6 +4801,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _mainWindow?.Classes.Remove(HostContract.InjectorWindowClass);
         _windowRoot = null;
         _styleHost = null;
+        // 一并置空主窗口/主界面根：否则禁用→重新启用后 Apply 不再走 Attach 查找分支，
+        // _windowRoot 永久为 null，Ripple/点击特效静默失效。
+        _mainWindow = null;
+        _islandRoot = null;
     }
 
     public void Dispose()
