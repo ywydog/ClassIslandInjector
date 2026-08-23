@@ -11,6 +11,7 @@ using ClassIsland.Core.Assists;
 using ClassIsland.Core.Attributes;
 using ClassIsland.Core.Controls;
 using ClassIsland.Shared;
+using ClassIslandInjector.Controls;
 using FluentAvalonia.UI.Controls;
 
 namespace ClassIslandInjector.Views;
@@ -384,7 +385,16 @@ public sealed class InjectorSettingsPage : SettingsPageBase
 
     public InjectorSettingsPage()
     {
-        Content = BuildContent();
+        // 懒加载：把重型设置内容的构建放进 SettingsPageLazy 的 ContentFactory，
+        // 页面首次呈现时才执行，正是宿主「导航到设置页才创建本页」页面级懒加载之外的
+        // 页面内懒加载。期间先显示加载指示器，内容就绪后淡入，避免阻塞设置导航。
+        Content = new SettingsPageLazy { ContentFactory = BuildSettingsContent };
+    }
+
+    /// <summary>懒加载用的内容工厂：一次性构建设置页根控件并完成所有接线，返回页面根。</summary>
+    private Control? BuildSettingsContent()
+    {
+        var panel = BuildContent();
         WireVisualEditor();
         WireLivePreview();
         // 调试开关即时生效（须在 LoadFromSettings 之前挂接，加载持久化值时也会触发）。
@@ -400,6 +410,7 @@ public sealed class InjectorSettingsPage : SettingsPageBase
         // 用户切换下拉选择时，按该对照表的最低插件版本要求刷新「插件版本过低」提示。
         _contractTableList.SelectionChanged += (_, _) => UpdatePluginUpdateInfoBar(_contractTableList.SelectedItem as ContractIndexEntry);
         WireSmtcTutorial();
+        return panel;
     }
 
     /// <summary>
