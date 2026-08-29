@@ -33,6 +33,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
     private readonly Stopwatch _animationClock = Stopwatch.StartNew();
     private Window? _mainWindow;
     private Control? _islandRoot;
+    /// <summary>宿主「编辑主界面」是否正在编辑中（进入编辑态时豁免动画/点击特效/卡片画刷）。</summary>
+    private bool _editModeActive;
+    /// <summary>主窗口 ViewModel（反射获取，订阅其 IsEditMode 变化；宿主无此成员时跳过豁免）。</summary>
+    private INotifyPropertyChanged? _hostMainViewmodel;
     private Border? _styleHost;
     private ITransform? _originalTransform;
     private double _originalOpacity = 1;
@@ -224,6 +228,131 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _wallpaperTimer = new DispatcherTimer(TimeSpan.FromSeconds(30), DispatcherPriority.Background, OnWallpaperTimerTick);
     }
 
+    // ============ 宿主「编辑主界面」状态豁免 ============
+    // misha 分支的「编辑主界面」是主窗口就地进入的编辑模式（MainWindow.ViewModel.IsEditMode，
+    // 通过 :edit-mode 伪类切换）。编辑时若插件的根动画/点击特效/卡片画刷仍生效，会严重影响
+    // 拖拽对齐与观感。这里反射订阅 ViewModel.IsEditMode，编辑态下暂停动画与点击特效，
+    // 并恢复卡片原生画刷，退出编辑后用 Apply() 重新应用。宿主无此成员时静默跳过。
+
+    /// <summary>订阅主窗口 ViewModel 的 IsEditMode 变化并读取当前值（反射，宿主无此成员时无操作）。</summary>
+    private void AttachEditModeObserver()
+    {
+        if (_mainWindow == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var vm = _mainWindow.GetType()
+                .GetProperty("ViewModel", BindingFlags.Public | BindingFlags.Instance)?.GetValue(_mainWindow)
+                as INotifyPropertyChanged;
+            if (vm == null)
+            {
+                return;
+            }
+
+            _hostMainViewmodel = vm;
+            vm.PropertyChanged -= OnHostViewModelPropertyChanged;
+            vm.PropertyChanged += OnHostViewModelPropertyChanged;
+            ApplyEditModeState(ReadIsEditMode(vm));
+        }
+        catch
+        {
+            // 宿主主窗口暴露的成员变化（无 ViewModel/IsEditMode）时跳过编辑态豁免，不影响注入。
+        }
+    }
+
+    /// <summary>退订编辑态观察器（切窗口/还原宿主时调用）。</summary>
+    private void DetachEditModeObserver()
+    {
+        if (_hostMainViewmodel != null)
+        {
+            try
+            {
+                _hostMainViewmodel.PropertyChanged -= OnHostViewModelPropertyChanged;
+            }
+            catch
+            {
+                // 忽略退订失败。
+            }
+
+            _hostMainViewmodel = null;
+        }
+
+        _editModeActive = false;
+    }
+
+    /// <summary>反射读取 ViewModel.IsEditMode 当前值；读不到一律视为非编辑态。</summary>
+    private static bool ReadIsEditMode(object viewModel)
+    {
+        try
+        {
+            return viewModel.GetType().GetProperty("IsEditMode")?.GetValue(viewModel) is true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void OnHostViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != "IsEditMode")
+        {
+            return;
+        }
+
+        ApplyEditModeState(ReadIsEditMode(sender!));
+    }
+
+    /// <summary>根据宿主编辑态切换豁免（仅状态变化时触发一次，已循环/防抖）。</summary>
+    private void ApplyEditModeState(bool editing)
+    {
+        if (_editModeActive == editing)
+        {
+            return;
+        }
+
+        _editModeActive = editing;
+        if (editing)
+        {
+            EnterEditModeExemption();
+        }
+        else
+        {
+            LeaveEditModeExemption();
+        }
+    }
+
+    /// <summary>进入编辑态：暂停动画/状态计时器、复位根变换与透明度、恢复卡片原生画刷。</summary>
+    private void EnterEditModeExemption()
+    {
+        _animationTimer.Stop();
+        _stateTimer.Stop();
+        if (_islandRoot != null)
+        {
+            _islandRoot.RenderTransform = _originalTransform;
+            _islandRoot.Opacity = _originalOpacity;
+        }
+
+        // 执行恢复委托还原宿主卡片画刷/圆角，并清空装饰记录（后续 Apply() 会重采重建）。
+        RestoreDecorations();
+        _decorations.Clear();
+        _shadowEffect = null;
+    }
+
+    /// <summary>退出编辑态：重新应用插件的全部装饰/变换并重启计时器。</summary>
+    private void LeaveEditModeExemption()
+    {
+        if (!_settings.Enabled || _mainWindow == null || _islandRoot == null)
+        {
+            return;
+        }
+
+        Apply();
+    }
+
     public void Attach()
     {
         var mainWindow = AppBase.Current.MainWindow;
@@ -251,6 +380,10 @@ internal sealed class MainWindowStyleInjector : IDisposable
             _islandRoot.Classes.Add(HostContract.InjectorRootClass);
         }
 
+        // 挂接宿主「编辑主界面」状态：编辑时暂停动画/点击特效并恢复卡片原生画刷，
+        // 让用户就地编辑主界面不被插件的视觉注入干扰。切窗口时先退订再挂新窗口。
+        DetachEditModeObserver();
+        AttachEditModeObserver();
         AttachClickHandler();
         Apply();
     }
@@ -286,6 +419,14 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _animationClock.Restart();
         _stateTimer.Start();
         UpdateAnimationTimer();
+
+        // 编辑态恒胜：若本轮 Apply 由宿主编辑态之外触发的（如实时设置变更），
+        // 可能在编辑中重新写入了变换/动画/卡片画刷，这里按当前编辑态再次豁免，
+        // 确保「编辑主界面」时始终呈现接近宿主的静态原生界面。
+        if (_editModeActive)
+        {
+            EnterEditModeExemption();
+        }
     }
 
     public void ReloadStyleSheet()
@@ -1150,7 +1291,9 @@ internal sealed class MainWindowStyleInjector : IDisposable
 
     private void IslandRootOnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (!_settings.Enabled || !_settings.ClickEffectEnabled || _settings.ClickEffectType == ClickEffectType.None ||
+        // 编辑主界面时豁免点击特效：避免编辑态拖拽/点选组件不断冒 Ripple/弹跳干扰编辑。
+        if (_editModeActive ||
+            !_settings.Enabled || !_settings.ClickEffectEnabled || _settings.ClickEffectType == ClickEffectType.None ||
             _islandRoot == null || _mainWindow == null || _windowRoot == null)
         {
             return;
@@ -4805,6 +4948,7 @@ internal sealed class MainWindowStyleInjector : IDisposable
         // _windowRoot 永久为 null，Ripple/点击特效静默失效。
         _mainWindow = null;
         _islandRoot = null;
+        DetachEditModeObserver();
     }
 
     public void Dispose()
