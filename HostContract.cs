@@ -50,6 +50,8 @@ internal static class HostContract
 
     /// <summary>MainWindowLine 控件的完整类型名。</summary>
     public static string MainWindowLineTypeName { get; private set; } = "ClassIsland.Controls.MainWindowLine";
+    /// <summary>宿主「组件设置」类型全名（卡片/组件控件 DataContext，含稳定 Id）。</summary>
+    public static string ComponentSettingsTypeName { get; private set; } = "ClassIsland.Core.Models.Components.ComponentSettings";
 
     /// <summary>「轮播容器」组件的完整类型名（自定义其切换上翻动画用）。</summary>
     public static string SlideComponentTypeName { get; private set; } = "ClassIsland.Controls.Components.SlideComponent";
@@ -255,6 +257,7 @@ internal static class HostContract
         InjectorWindowClass = "classisland-injector";
         InjectorRootClass = "classisland-injector-root";
         LineBackgroundClass = "line-background";
+        ComponentSettingsTypeName = "ClassIsland.Core.Models.Components.ComponentSettings";
         PseudoMaskIn = ":mask-in";
         PseudoMaskOut = ":mask-out";
         PrepareOnClassChannelId = new Guid("CDDFE7FF-B904-4C73-B458-82793B2F66E9");

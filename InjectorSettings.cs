@@ -598,6 +598,63 @@ public sealed class WallpaperLayerItem
     };
 }
 
+/// <summary>
+/// 单个组件的独立背景覆盖：匹配到所属组件（按宿主 ComponentSettings.Id）时，
+/// 用本项的背景色/渐变/边框替代插件的全局背景，未配置的组件沿用全局。
+/// 供「逐组件背景（分体模式）」使用。
+/// </summary>
+public sealed class ComponentBackgroundOverride
+{
+    /// <summary>目标组件的稳定 Id（宿主 ComponentSettings.Id / ComponentInfo.Guid 字符串）。</summary>
+    public string ComponentId { get; set; } = string.Empty;
+
+    /// <summary>组件显示名（用于设置页展示，识别以 Id 为准）。</summary>
+    public string ComponentName { get; set; } = string.Empty;
+
+    /// <summary>是否启用本覆盖（关闭则该组件回退插件全局背景）。</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>是否覆盖背景色（否则用全局背景）。</summary>
+    public bool UseBackgroundEnabled { get; set; } = true;
+
+    /// <summary>覆盖背景色。</summary>
+    public string BackgroundColor { get; set; } = "#CC202020";
+
+    /// <summary>覆盖背景是否使用渐变。</summary>
+    public bool GradientEnabled { get; set; }
+
+    /// <summary>覆盖渐变终止色。</summary>
+    public string GradientEndColor { get; set; } = "#CC4040A0";
+
+    /// <summary>覆盖渐变方向。</summary>
+    public GradientDirection GradientDirection { get; set; } = GradientDirection.TopLeftToBottomRight;
+
+    /// <summary>是否覆盖边框（否则用全局边框）。</summary>
+    public bool UseBorderEnabled { get; set; } = true;
+
+    /// <summary>覆盖边框色。</summary>
+    public string BorderColor { get; set; } = "#99FFFFFF";
+
+    /// <summary>覆盖边框粗细。</summary>
+    public double BorderThickness { get; set; } = 1;
+
+    /// <summary>深拷贝，供 InjectorSettings.CopyFrom 使用。</summary>
+    public ComponentBackgroundOverride Clone() => new()
+    {
+        ComponentId = ComponentId,
+        ComponentName = ComponentName,
+        Enabled = Enabled,
+        UseBackgroundEnabled = UseBackgroundEnabled,
+        BackgroundColor = BackgroundColor,
+        GradientEnabled = GradientEnabled,
+        GradientEndColor = GradientEndColor,
+        GradientDirection = GradientDirection,
+        UseBorderEnabled = UseBorderEnabled,
+        BorderColor = BorderColor,
+        BorderThickness = BorderThickness
+    };
+}
+
 public sealed class InjectorSettings
 {
     private bool _enabled = true;
@@ -706,6 +763,7 @@ public sealed class InjectorSettings
     private double _wallpaperSlideshowIntervalSeconds = 30;
     private double _wallpaperBlurRadius;
     private List<WallpaperLayerItem> _wallpaperLayers = [];
+    private List<ComponentBackgroundOverride> _componentBackgroundOverrides = [];
     private WallpaperLayerZOrder _wallpaperZOrder = WallpaperLayerZOrder.BehindBackground;
     private bool _wallpaperDesignerEnabled = true; // 全新安装默认启用专家模式（图层编辑器），老配置已有值则保持原样
     private bool _wallpaperCheckerFollowTheme = true;
@@ -864,6 +922,8 @@ public sealed class InjectorSettings
     public double WallpaperBlurRadius { get => _wallpaperBlurRadius; set => Set(ref _wallpaperBlurRadius, Math.Clamp(value, 0, 60)); }
     /// <summary>图层式底图的图层列表（编辑器写入；非空且启用时优先于旧版简单底图）。</summary>
     public List<WallpaperLayerItem> WallpaperLayers { get => _wallpaperLayers; set => Set(ref _wallpaperLayers, value ?? []); }
+    /// <summary>逐组件背景覆盖列表（分体模式下为根组件卡独立设置背景/渐变/边框）。</summary>
+    public List<ComponentBackgroundOverride> ComponentBackgroundOverrides { get => _componentBackgroundOverrides; set => Set(ref _componentBackgroundOverrides, value ?? []); }
     /// <summary>底图整体所在层级（相对主界面自身的图层）。</summary>
     public WallpaperLayerZOrder WallpaperZOrder { get => _wallpaperZOrder; set => Set(ref _wallpaperZOrder, value); }
     /// <summary>是否启用 Photoshop 风格图层式底图（由图层编辑器写入）。</summary>
@@ -1047,6 +1107,7 @@ public sealed class InjectorSettings
         WallpaperDesignerEnabled = source.WallpaperDesignerEnabled;
         WallpaperZOrder = source.WallpaperZOrder;
         WallpaperLayers = source.WallpaperLayers.Select(l => l.Clone()).ToList();
+        ComponentBackgroundOverrides = source.ComponentBackgroundOverrides.Select(l => l.Clone()).ToList();
         WallpaperCheckerFollowTheme = source.WallpaperCheckerFollowTheme;
         WallpaperCheckerColor1 = source.WallpaperCheckerColor1;
         WallpaperCheckerColor2 = source.WallpaperCheckerColor2;

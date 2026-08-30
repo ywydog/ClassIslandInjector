@@ -4719,6 +4719,90 @@ internal sealed class MainWindowStyleInjector : IDisposable
         }
     }
 
+    /// <summary>按组件 Id 在本插件的「逐组件背景覆盖」列表里取生效项；无匹配或未启用返回 null。</summary>
+    private ComponentBackgroundOverride? FindComponentOverride(string componentId)
+    {
+        if (string.IsNullOrEmpty(componentId))
+        {
+            return null;
+        }
+
+        foreach (var o in _settings.ComponentBackgroundOverrides)
+        {
+            if (o.Enabled && string.Equals(o.ComponentId, componentId, StringComparison.OrdinalIgnoreCase))
+            {
+                return o;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 向上反查卡片（Border）所属的宿主组件：沿祖先链找 DataContext 类型为
+    /// ComponentSettings 的节点（分体模式根组件/组件小卡的 Line-background Border
+    /// 都继承该 DataContext），读其稳定 Id 与显示名。找不到则返回 false（用全局背景）。
+    /// </summary>
+    private static bool TryGetComponentIdentity(Visual visual, out string id, out string name)
+    {
+        id = string.Empty;
+        name = string.Empty;
+        for (Visual? cur = visual; cur != null; cur = cur.Parent as Visual)
+        {
+            var dataContext = (cur as StyledElement)?.DataContext;
+            if (dataContext == null || dataContext.GetType().FullName != HostContract.ComponentSettingsTypeName)
+            {
+                continue;
+            }
+
+            var componentId = ReadStringProperty(dataContext, "Id");
+            if (string.IsNullOrEmpty(componentId))
+            {
+                return false;
+            }
+
+            id = componentId;
+            name = ReadComponentName(dataContext);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>反射读字符串属性；异常一律回空串。</summary>
+    private static string? ReadStringProperty(object obj, string propertyName)
+    {
+        try
+        {
+            return obj.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj) as string;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>读组件显示名：优先 AssociatedComponentInfo.Name，回退 NameCache。</summary>
+    private static string ReadComponentName(object componentSettings)
+    {
+        try
+        {
+            var info = componentSettings.GetType()
+                .GetProperty("AssociatedComponentInfo", BindingFlags.Public | BindingFlags.Instance)?.GetValue(componentSettings);
+            var name = info?.GetType().GetProperty("Name", BindingFlags.Public | BindingFlags.Instance)?.GetValue(info) as string;
+            if (!string.IsNullOrEmpty(name))
+            {
+                return name;
+            }
+        }
+        catch
+        {
+            // 反射失败则走 NameCache 回退。
+        }
+
+        return ReadStringProperty(componentSettings, "NameCache") ?? string.Empty;
+    }
+
     private void ApplyDecorations()
     {
         RestoreDecorations();
@@ -4766,6 +4850,17 @@ internal sealed class MainWindowStyleInjector : IDisposable
                 continue;
             }
 
+            // 逐组件背景覆盖：分体模式下组件小卡可反查到所属组件 Id，命中本插件的
+            // 覆盖列表则用该项背景/渐变/边框（未配置或非分体卡回退全局）。
+            ComponentBackgroundOverride? componentOverride = null;
+            if (!fullscreenActive &&
+                TryGetComponentIdentity(borderControl, out var componentId, out _))
+            {
+                componentOverride = FindComponentOverride(componentId);
+            }
+            var ovrBg = componentOverride?.BackgroundColor;
+            var ovrBorderColor = componentOverride?.BorderColor;
+
             var originalCornerRadius = borderControl.CornerRadius;
             var originalBackground = borderControl.Background;
             var originalBorderBrush = borderControl.BorderBrush;
@@ -4792,6 +4887,15 @@ internal sealed class MainWindowStyleInjector : IDisposable
                 {
                     borderControl.Background = Brushes.Transparent;
                 }
+                else if (componentOverride is { UseBackgroundEnabled: true } &&
+                         !string.IsNullOrEmpty(ovrBg) && TryParseColor(ovrBg, out var ovrBackground))
+                {
+                    backgroundBrush = componentOverride.GradientEnabled &&
+                                      TryParseColor(componentOverride.GradientEndColor, out var ovrEnd)
+                        ? BuildGradientBrush(ovrBackground, ovrEnd, componentOverride.GradientDirection)
+                        : new SolidColorBrush(ovrBackground);
+                    borderControl.Background = backgroundBrush;
+                }
                 else if (_settings.CustomBackgroundEnabled)
                 {
                     backgroundBrush = _settings.GradientEnabled && TryParseColor(_settings.GradientEndColor, out var endColor)
@@ -4806,6 +4910,13 @@ internal sealed class MainWindowStyleInjector : IDisposable
             {
                 borderControl.BorderBrush = Brushes.Transparent;
                 borderControl.BorderThickness = new Thickness(0);
+            }
+            else if (componentOverride is { UseBorderEnabled: true } &&
+                     !string.IsNullOrEmpty(ovrBorderColor) && TryParseColor(ovrBorderColor, out var ovrBorder))
+            {
+                borderBrush = new SolidColorBrush(ovrBorder);
+                borderControl.BorderBrush = borderBrush;
+                borderControl.BorderThickness = new Thickness(componentOverride.BorderThickness);
             }
             else if (_settings.BorderEnabled)
             {
@@ -4850,10 +4961,14 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _decorationRestorers.Clear();
     }
 
-    /// <summary>按用户配置的渐变方向构建线性渐变画刷。</summary>
+    /// <summary>按用户配置的渐变方向构建线性渐变画刷（沿用全局渐变方向）。</summary>
     private LinearGradientBrush BuildGradientBrush(Color start, Color end)
+        => BuildGradientBrush(start, end, _settings.GradientDirection);
+
+    /// <summary>按指定渐变方向构建线性渐变画刷（供逐组件覆盖使用）。</summary>
+    private LinearGradientBrush BuildGradientBrush(Color start, Color end, GradientDirection direction)
     {
-        var (startPoint, endPoint) = GradientGeometry.Points(_settings.GradientDirection);
+        var (startPoint, endPoint) = GradientGeometry.Points(direction);
         return new LinearGradientBrush
         {
             StartPoint = startPoint,
