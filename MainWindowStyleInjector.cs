@@ -4670,6 +4670,55 @@ internal sealed class MainWindowStyleInjector : IDisposable
         return false;
     }
 
+    /// <summary>缓存宿主 MainWindowStylesAssist 的 IsBackgroundMaterialEnabledProperty（反射，无则 null）。</summary>
+    private static AvaloniaProperty? _hostBackgroundMaterialEnabledProperty;
+
+    private static AvaloniaProperty? GetHostBackgroundMaterialEnabledProperty()
+    {
+        if (_hostBackgroundMaterialEnabledProperty != null)
+        {
+            return _hostBackgroundMaterialEnabledProperty;
+        }
+
+        try
+        {
+            var assistType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(a => a.GetType("ClassIsland.Core.Assists.MainWindowStylesAssist", false))
+                .FirstOrDefault(t => t != null);
+            _hostBackgroundMaterialEnabledProperty = assistType?
+                .GetField("IsBackgroundMaterialEnabledProperty", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null) as AvaloniaProperty;
+        }
+        catch
+        {
+            _hostBackgroundMaterialEnabledProperty = null;
+        }
+
+        return _hostBackgroundMaterialEnabledProperty;
+    }
+
+    /// <summary>
+    /// 宿主是否在该 Border 上启用了系统背景材质（亚克力/Mica/液态玻璃）。
+    /// 新宿主（含 misha develop）有此附加属性；旧宿主反射不到则一律视为未启用。
+    /// </summary>
+    private static bool IsHostBackgroundMaterialCard(Border control)
+    {
+        var prop = GetHostBackgroundMaterialEnabledProperty();
+        if (prop == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return control.GetValue(prop) is true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void ApplyDecorations()
     {
         RestoreDecorations();
@@ -4707,6 +4756,16 @@ internal sealed class MainWindowStyleInjector : IDisposable
             .ToArray();
         foreach (var borderControl in cards)
         {
+            // 宿主「背景材质」让位：misha develop 引入系统合成材质（亚克力/Mica/液态玻璃，
+            // MainWindowBackgroundMaterialControl），通过 MainWindowStylesAssist
+            // IsBackgroundMaterialEnabled 附加属性作用在承载背景的 Border 上。若宿主在该卡
+            // 启用了材质，插件不再涂底色/边框，避免把材质抹成纯色或与其叠加冲突，
+            // 让插件底纹/壁纸与宿主材质协同而非遮蔽。旧宿主无此成员时恒为 false，不影响。
+            if (IsHostBackgroundMaterialCard(borderControl))
+            {
+                continue;
+            }
+
             var originalCornerRadius = borderControl.CornerRadius;
             var originalBackground = borderControl.Background;
             var originalBorderBrush = borderControl.BorderBrush;
