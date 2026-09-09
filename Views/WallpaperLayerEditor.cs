@@ -731,16 +731,17 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     }
 
     /// <summary>
-    /// 新建空白（透明）图片图层：尺寸与主界面一致，导出为 PNG 后作为本地图片图层，
-    /// 可用画笔 / 橡皮擦在其上绘制。
+    /// 在「配置目录\layers」下创建一个指定尺寸的全透明 PNG 位图文件（DPI 92 基准上按
+    /// RenderScaling 放大，保证画笔等逐像素绘制在屏幕上 1:1 清晰）。返回文件路径；
+    /// 创建失败（磁盘 / 权限等）返回 null。
     /// </summary>
-    private void AddBlankLayer()
+    private static string? CreateBlankBitmapFile(int widthDip, int heightDip, TopLevel? topLevel)
     {
         // 位图按显示器缩放（DPI）创建，保证画出来的笔迹在屏幕上 1:1 清晰，
         // 不会因为「位图分辨率 = DIP 尺寸」而被系统放大变糊。
-        var dpr = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var w = (int)Math.Max(1, Math.Round(_canvas.IslandWidth * dpr));
-        var h = (int)Math.Max(1, Math.Round(_canvas.IslandHeight * dpr));
+        var dpr = topLevel?.RenderScaling ?? 1.0;
+        var w = (int)Math.Max(1, Math.Round(widthDip * dpr));
+        var h = (int)Math.Max(1, Math.Round(heightDip * dpr));
         var id = Guid.NewGuid().ToString("N");
         var dir = Path.Combine(InjectorRuntime.ConfigDirectory, "layers");
         Directory.CreateDirectory(dir);
@@ -754,12 +755,24 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         }
         catch
         {
+            return null;
+        }
+
+        return path;
+    }
+
+    private void AddBlankLayer()
+    {
+        var path = CreateBlankBitmapFile(
+            (int)Math.Round(_canvas.IslandWidth), (int)Math.Round(_canvas.IslandHeight), TopLevel.GetTopLevel(this));
+        if (path == null)
+        {
             return;
         }
 
         var layer = new WallpaperLayerItem
         {
-            Id = id,
+            Id = Guid.NewGuid().ToString("N"),
             Name = $"空白图层 {_layers.Count + 1}",
             Kind = WallpaperLayerKind.Image,
             Source = WallpaperSource.LocalImage,
@@ -783,30 +796,18 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     /// </summary>
     private void AddCanvasLayer()
     {
-        var dpr = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         var canvasW = _canvas.IslandWidth + WallpaperLayerCanvas.CanvasMargin * 2;
         var canvasH = _canvas.IslandHeight + WallpaperLayerCanvas.CanvasMargin * 2;
-        var bw = (int)Math.Max(1, Math.Round(canvasW * dpr));
-        var bh = (int)Math.Max(1, Math.Round(canvasH * dpr));
-        var id = Guid.NewGuid().ToString("N");
-        var dir = Path.Combine(InjectorRuntime.ConfigDirectory, "layers");
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, $"{id}.png");
-        try
-        {
-            // WriteableBitmap 默认清零（全透明）；位图按显示器缩放创建保证笔迹清晰。
-            using var bmp = new WriteableBitmap(new PixelSize(bw, bh), new Vector(96, 96));
-            using var fs = File.Create(path);
-            bmp.Save(fs);
-        }
-        catch
+        var path = CreateBlankBitmapFile(
+            (int)Math.Round(canvasW), (int)Math.Round(canvasH), TopLevel.GetTopLevel(this));
+        if (path == null)
         {
             return;
         }
 
         var layer = new WallpaperLayerItem
         {
-            Id = id,
+            Id = Guid.NewGuid().ToString("N"),
             Name = $"画布 {_layers.Count + 1}",
             Kind = WallpaperLayerKind.Image,
             Source = WallpaperSource.LocalImage,
