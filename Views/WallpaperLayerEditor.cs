@@ -2408,8 +2408,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     /// <summary>第二张教学图片：自定义尺寸（高 ≈ 主界面 0.55，宽按图片比例）、垂直水平居中，供用户缩放后右对齐。</summary>
     private void AddSecondImageTutorialLayer(string path)
     {
-        PushUndo();
-        var layer = new WallpaperLayerItem
+        var layer = AddLayer(new WallpaperLayerItem
         {
             Id = Guid.NewGuid().ToString("N"),
             Name = $"底图图层 {_layers.Count + 1}",
@@ -2419,10 +2418,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             DisplayMode = WallpaperDisplayMode.Fit,
             AnchorX = WallpaperLayerAnchorX.Center,
             AnchorY = WallpaperLayerAnchorY.Center
-        };
-        _layers.Add(layer);
-        _document.MarkDirty();
-        _canvas.Layers = _layers; // 触发 RefreshImages 加载位图
+        });
         // 按图片宽高比设定初始尺寸（高 = 主界面 0.55，宽按比例），并居中放置。
         if (_canvas.GetThumbnail(layer.Id) is { } bitmap && bitmap.PixelSize.Height > 0)
         {
@@ -2433,10 +2429,6 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             _canvas.Refresh();
         }
 
-        _canvas.Select(layer.Id);
-        RefreshLayerList();
-        RefreshInspector();
-        UpdateStatus();
         // 记录缩放基线，供「缩放」等待句判断尺寸真的变化。
         RecordTutorialScaleBaseline(layer);
         // 向前推动教程的「加第二张图」等待句。
