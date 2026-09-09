@@ -2305,20 +2305,19 @@ public sealed class InjectorSettingsPage : SettingsPageBase
     }
 
     /// <summary>
-    /// 分体模式下隐藏「背景图片」图层编辑器入口与「底图模糊」：整岛底图在分体主界面被禁用
-    /// （运行时 ApplyWallpaper 判 IsSeparatedMode 跳过渲染），分体块外观统一由底色/底纹画笔控制。
+    /// 分体模式下整岛底图已恢复生效（运行时 ApplyWallpaper 不再对分体禁用），
+    /// 故分体页也显示「背景图片」图层编辑器入口与「底图模糊」，两种模式一致。
     /// </summary>
     private void ApplyWallpaperSectionVisibility()
     {
-        var show = !_splitPage;
         if (_wallpaperGroup != null)
         {
-            _wallpaperGroup.IsVisible = show;
+            _wallpaperGroup.IsVisible = true;
         }
 
         if (_wallpaperBlurGroup != null)
         {
-            _wallpaperBlurGroup.IsVisible = show;
+            _wallpaperBlurGroup.IsVisible = true;
         }
     }
 
@@ -3914,13 +3913,9 @@ public sealed class InjectorSettingsPage : SettingsPageBase
             settings.BorderEnabled = _border.IsChecked == true;
             settings.BorderColor = _borderColor.Color.ToString();
             settings.BorderThickness = _borderThickness.DoubleValue;
-            if (!_splitPage)
-            {
-                // 分体模式下整岛底图被禁用：不写全局底图（图层编辑器入口与底图模糊已隐藏），
-                // 避免把用户在非分体整岛下配置好的底图覆盖成隐藏控件的陈旧值。
-                settings.WallpaperEnabled = _wallpaperEnabled.IsChecked == true;
-                settings.WallpaperBlurRadius = _wallpaperBlur.DoubleValue;
-            }
+            // 整岛底图对非分体与分体均生效：两种页面一致地写入全局底图（分体页入口已恢复显示）。
+            settings.WallpaperEnabled = _wallpaperEnabled.IsChecked == true;
+            settings.WallpaperBlurRadius = _wallpaperBlur.DoubleValue;
 
             settings.WallpaperDesignerEnabled = true;
             settings.VideoFillEnabled = _videoFillEnabled.IsChecked == true;

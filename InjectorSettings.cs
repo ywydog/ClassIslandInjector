@@ -358,6 +358,10 @@ public sealed class WallpaperLayerItem
     /// <summary>所在组的标识；空字符串表示未编组。同组图层在画布上可整组移动。</summary>
     public string GroupId { get; set; } = string.Empty;
 
+    /// <summary>所在分体块的标识（组件 GUID）。空字符串 = 整岛（整张绘制在全部主界面块并集矩形内）；
+    /// 非空 = 仅在该分体块内按其独立尺寸布局绘制（分体多图层）。分体模式下启用。</summary>
+    public string SplitBlockId { get; set; } = string.Empty;
+
     public string Name { get; set; } = "底图图层";
 
     public bool Visible { get; set; } = true;
@@ -597,6 +601,7 @@ public sealed class WallpaperLayerItem
     {
         Id = Id,
         GroupId = GroupId,
+        SplitBlockId = SplitBlockId,
         Name = Name,
         Visible = Visible,
         Opacity = Opacity,

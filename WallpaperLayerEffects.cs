@@ -3,6 +3,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace ClassIslandInjector;
 
@@ -241,7 +242,14 @@ public static class WallpaperLayerEffects
             layer.Brightness, layer.Contrast,
             source.AlphaFormat == AlphaFormat.Premul);
 
-        var output = new WriteableBitmap(new PixelSize(w, h), source.Dpi, PixelFormat.Bgra8888, AlphaFormat.Premul);
+        return FromBytes(bytes, stride, w, h, source.Dpi);
+    }
+
+    /// <summary>由处理后的直通 Bgra8888 像素缓冲构建可写位图（步长适配 + 逐行拷贝到缓冲）。
+    /// 纯数据 → 位图的最后一步，仅创建 / 写 WriteableBitmap（应在 UI 线程执行）；像素数学仍留在 byte[] 上。</summary>
+    public static WriteableBitmap FromBytes(byte[] bytes, int stride, int w, int h, Vector dpi)
+    {
+        var output = new WriteableBitmap(new PixelSize(w, h), dpi, PixelFormat.Bgra8888, AlphaFormat.Premul);
         using (var ofb = output.Lock())
         {
             var outStride = ofb.RowBytes;
@@ -274,7 +282,9 @@ public static class WallpaperLayerEffects
         var contrastFactor = contrast != 0
             ? (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast))
             : 1.0;
-        for (var y = 0; y < h; y++)
+        // 每行像素彼此独立：并行按行计算，充分利用多核削减大图滤镜的堵点
+        // （仍同步返回，保持既有调用契约不变）。
+        Parallel.For(0, h, y =>
         {
             var row = y * stride;
             for (var x = 0; x < rowPixels; x += 4)
@@ -380,7 +390,7 @@ public static class WallpaperLayerEffects
                 bytes[i + 2] = r;
                 bytes[i + 3] = a;
             }
-        }
+        });
     }
 
     /// <summary>亮度 / 对比度单通道换算（0-255）。</summary>
@@ -411,7 +421,7 @@ public static class WallpaperLayerEffects
         BoxBlurPass(b, a, stride, w, h, r, false);
         BoxBlurPass(a, b, stride, w, h, r, true);
         // 只把模糊结果写回掩码内像素。
-        for (var y = 0; y < h; y++)
+        Parallel.For(0, h, y =>
         {
             var row = y * w;
             for (var x = 0; x < w; x++)
@@ -427,7 +437,7 @@ public static class WallpaperLayerEffects
                 bytes[src + 2] = b[src + 2];
                 bytes[src + 3] = b[src + 3];
             }
-        }
+        });
     }
 
     /// <summary>单趟盒式模糊（RGBA 逐通道滑动窗口均值；边界按最近像素补齐）。</summary>
@@ -436,7 +446,8 @@ public static class WallpaperLayerEffects
         var window = r * 2 + 1;
         if (horizontal)
         {
-            for (var y = 0; y < h; y++)
+            // 水平趟：每行像素独立，按行并行（写 dst 的不同行，无竞争）。
+            Parallel.For(0, h, y =>
             {
                 var row = y * stride;
                 for (var c = 0; c < 4; c++)
@@ -454,11 +465,12 @@ public static class WallpaperLayerEffects
                              - src[row + Math.Clamp(x - r, 0, w - 1) * 4 + c];
                     }
                 }
-            }
+            });
         }
         else
         {
-            for (var x = 0; x < w; x++)
+            // 垂直趟：每列像素独立，按列并行（写 dst 的不同列，无竞争）。
+            Parallel.For(0, w, x =>
             {
                 for (var c = 0; c < 4; c++)
                 {
@@ -475,7 +487,7 @@ public static class WallpaperLayerEffects
                              - src[Math.Clamp(y - r, 0, h - 1) * stride + x * 4 + c];
                     }
                 }
-            }
+            });
         }
     }
 

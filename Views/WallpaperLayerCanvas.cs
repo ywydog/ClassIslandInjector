@@ -12,6 +12,8 @@ using Ellipse = Avalonia.Controls.Shapes.Ellipse;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ClassIslandInjector.Views;
 
@@ -103,6 +105,10 @@ internal sealed class WallpaperLayerCanvas : UserControl
     private readonly Dictionary<string, Border> _layerHosts = [];
     /// <summary>逐像素（色相/饱和度/明度）处理后的位图缓存（签名 = 原图路径 + HSL 值）。</summary>
     private readonly Dictionary<string, (string Signature, Bitmap Bitmap)> _processedBitmaps = [];
+    /// <summary>滤镜异步预览：正在进行的后台计算取消令牌（快速拖滑块时取消上一轮，只提交最新一轮）。</summary>
+    private CancellationTokenSource? _previewCts;
+    /// <summary>正在异步重算滤镜预览的图层 Id 集（<see cref="DisplayBitmap"/> 对它们沿用上一个结果，避免同步阻塞 UI）。</summary>
+    private readonly HashSet<string> _previewLayerIds = [];
     private readonly Dictionary<string, Bitmap> _bitmaps = [];
     private readonly Dictionary<string, MemoryStream> _streams = [];
     private readonly Dictionary<string, string> _loadedSignatures = [];
@@ -1540,6 +1546,13 @@ internal sealed class WallpaperLayerCanvas : UserControl
             return cached.Bitmap;
         }
 
+        // 滤镜异步预览进行中：该图层正由后台任务重算，这里沿用上一个结果（旧签名或原图），
+        // 不触发同步逐像素重算，避免滑块拖动阻塞 UI 线程；后台完成后再替换缓存并刷新显示。
+        if (_previewLayerIds.Contains(layer.Id))
+        {
+            return _processedBitmaps.TryGetValue(layer.Id, out var prev) ? prev.Bitmap : raw;
+        }
+
         // 注意：cached 是值类型元组，缓存未命中时为 default（Bitmap 为 null），
         // 不能对元组本身用 `is { }` 判空（值类型恒真），必须对 Bitmap 成员判空。
         if (cached.Bitmap is { } oldBitmap)
@@ -1568,6 +1581,142 @@ internal sealed class WallpaperLayerCanvas : UserControl
     /// <summary>逐像素处理（裁剪 + 颜色调整）的缓存签名。</summary>
     private static string ProcessSignature(WallpaperLayerItem layer) =>
         $"{layer.Path}|{layer.CropX}|{layer.CropY}|{layer.CropWidth}|{layer.CropHeight}|{layer.HueShift}|{layer.SaturationAdjust}|{layer.LightnessAdjust}|{layer.Brightness}|{layer.Contrast}";
+
+    // ============ 滤镜异步预览（像素数学移出 UI 线程）============
+
+    /// <summary>
+    /// 请求对选中的图片图层做异步滤镜预览：UI 线程只登记图层并沿用上一个结果，真正的逐像素计算
+    /// 用 <c>Task.Run</c> 在后台线程执行，完成后回 UI 线程替换处理缓存并刷新对应图层显示。
+    /// 快速拖动滑块时通过 <see cref="_previewCts"/> 取消上一轮，只让最新一轮生效。
+    /// 带裁剪的图层交由 <see cref="DisplayBitmap"/> 同步兜底（裁剪不在滤镜窗口编辑，罕见）。
+    /// </summary>
+    public void RequestFilterPreview(IReadOnlyCollection<WallpaperLayerItem> layers)
+    {
+        _previewCts?.Cancel();
+        _previewCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _previewCts = cts;
+        var token = cts.Token;
+
+        foreach (var layer in layers)
+        {
+            if (layer.Kind != WallpaperLayerKind.Image)
+            {
+                continue;
+            }
+
+            if (!_bitmaps.TryGetValue(layer.Id, out var raw))
+            {
+                continue;
+            }
+
+            if (!WallpaperLayerEffects.HasAdjustment(layer) && !WallpaperLayerEffects.HasCrop(layer))
+            {
+                continue;
+            }
+
+            var signature = ProcessSignature(layer);
+            if (_processedBitmaps.TryGetValue(layer.Id, out var cached) && cached.Signature == signature)
+            {
+                continue; // 已是最新，无需重算。
+            }
+
+            _previewLayerIds.Add(layer.Id);
+            if (WallpaperLayerEffects.HasCrop(layer))
+            {
+                continue; // 同步兜底。
+            }
+
+            // 仅在 UI 线程读取源像素（安全、廉价的内存拷贝），数学放在后台线程。
+            var format = raw.Format;
+            var bgra = format == PixelFormat.Bgra8888;
+            if (!bgra && format != PixelFormat.Rgba8888)
+            {
+                continue;
+            }
+
+            var premul = raw.AlphaFormat == AlphaFormat.Premul;
+            var w = raw.PixelSize.Width;
+            var h = raw.PixelSize.Height;
+            if (w <= 0 || h <= 0)
+            {
+                continue;
+            }
+
+            var stride = w * 4;
+            var bytes = new byte[h * stride];
+            var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try
+            {
+                raw.CopyPixels(new PixelRect(0, 0, w, h), handle.AddrOfPinnedObject(), bytes.Length, stride);
+            }
+            finally
+            {
+                handle.Free();
+            }
+
+            var hue = (layer.HueShift % 360) / 360.0;
+            var sat = 1 + layer.SaturationAdjust / 100.0;
+            var light = layer.LightnessAdjust / 100.0;
+            var brightness = layer.Brightness;
+            var contrast = layer.Contrast;
+            var dpi = raw.Dpi;
+            var layerId = layer.Id;
+
+            _ = Task.Run(() =>
+            {
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                WallpaperLayerEffects.AdjustPixels(bytes, stride, w, h, bgra, hue, sat, light, brightness, contrast, premul);
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    _previewLayerIds.Remove(layerId);
+                    // 只在该图层仍需要本签名时提交结果，否则弃用（更新的任务在跑）。
+                    var cur = _layers.FirstOrDefault(l => l.Id == layerId);
+                    if (cur == null || !_bitmaps.TryGetValue(layerId, out var curRaw) ||
+                        !ReferenceEquals(curRaw, raw) || ProcessSignature(cur) != signature)
+                    {
+                        return;
+                    }
+
+                    var bitmap = WallpaperLayerEffects.FromBytes(bytes, stride, w, h, dpi);
+                    if (_processedBitmaps.Remove(layerId, out var old) &&
+                        !ReferenceEquals(old.Bitmap, raw) && !ReferenceEquals(old.Bitmap, bitmap))
+                    {
+                        old.Bitmap.Dispose();
+                    }
+
+                    _processedBitmaps[layerId] = (signature, bitmap);
+                    if (_layerImages.TryGetValue(layerId, out var image))
+                    {
+                        image.Source = bitmap;
+                    }
+                }, DispatcherPriority.Background);
+            }, token);
+        }
+    }
+
+    /// <summary>取消进行中的滤镜异步预览并复位登记集（提交 / 取消 / 关闭窗口时调用），
+    /// 之后 <see cref="DisplayBitmap"/> 恢复同步重算以呈现最终结果。</summary>
+    public void CancelFilterPreview()
+    {
+        _previewCts?.Cancel();
+        _previewCts = null;
+        _previewLayerIds.Clear();
+    }
 
     private void LayoutImages()
     {

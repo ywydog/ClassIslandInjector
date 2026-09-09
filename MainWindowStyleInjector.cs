@@ -211,6 +211,9 @@ internal sealed class MainWindowStyleInjector : IDisposable
     private WallpaperHostMode _wallpaperHostMode = WallpaperHostMode.None;
     /// <summary>图层式底图的画布（宿主子项，图层图片按锚点相对定位）。</summary>
     private Canvas? _wallpaperCanvas;
+    /// <summary>分体逐块底图宿主：键 = 分体块组件 Id（SplitBlockId），值 = 插在该块底色之上的独立宿主。
+    /// 分体模式下，图层按 <see cref="WallpaperLayerItem.SplitBlockId"/> 归属到全局画布或多块宿主。</summary>
+    private readonly Dictionary<string, Border> _blockWallpaperHosts = [];
     /// <summary>当前挂载的图层视图（按设置顺序，后面的在上层）。</summary>
     private readonly List<WallpaperLayerView> _wallpaperLayerViews = [];
     /// <summary>当前 SMTC 媒体标题（「显示媒体标题」图层用）。</summary>
@@ -1718,9 +1721,11 @@ internal sealed class MainWindowStyleInjector : IDisposable
             return;
         }
 
-        // 分体主界面下禁用整岛底图（设置页分体模式已隐藏图层编辑器入口与底图模糊）：
-        // 整岛底图只服务于非分体整岛，分体块外观统一由「底色填充 / 底纹纹理」画笔控制。
-        var enabled = _settings.Enabled && _settings.WallpaperEnabled && !IsSeparatedMode();
+        // 整岛底图对非分体与分体模式都生效：分体模式下图层仍绘制在
+        // 「全部分体块背景 Border 并集矩形」内（ApplyOverlayHostBounds 已同时识别
+        // 非分体 BackgroundBorder 与分体块 line-background），整岛一张底图横跨分块；
+        // 逐分块独立底图（每块各自宿主）留待后续迭代。
+        var enabled = _settings.Enabled && _settings.WallpaperEnabled;
         if (!enabled)
         {
             RemoveWallpaper();
@@ -1732,6 +1737,16 @@ internal sealed class MainWindowStyleInjector : IDisposable
         if (_wallpaperHost == null)
         {
             return;
+        }
+
+        // 分体多图层：分体模式下为每个分体块建立独立底图宿主；非分体清理残留块宿主。
+        if (IsSeparatedMode())
+        {
+            EnsureBlockWallpaperHosts();
+        }
+        else
+        {
+            RemoveBlockWallpaperHosts();
         }
 
         SyncWallpaperLayerViews();
@@ -1848,6 +1863,12 @@ internal sealed class MainWindowStyleInjector : IDisposable
         if (controls != null)
         {
             ApplyOverlayHostBounds(_wallpaperHost, controls);
+        }
+
+        // 分体逐块宿主随主界面尺寸 / 布局变化重新定位。
+        if (IsSeparatedMode())
+        {
+            EnsureBlockWallpaperHosts();
         }
 
         UpdateWallpaperClip();
@@ -2284,7 +2305,121 @@ internal sealed class MainWindowStyleInjector : IDisposable
         _wallpaperHost = null;
         _wallpaperHostMode = WallpaperHostMode.None;
         _wallpaperCanvas = null;
+        RemoveBlockWallpaperHosts();
         DisposeWallpaperLayerViews();
+    }
+
+    // ============ 分体逐块底图宿主（分体多图层）============
+
+    /// <summary>图层归属的目标画布：空 SplitBlockId → 全局整岛画布；非空 → 对应分体块宿主画布（块缺失回退全局）。</summary>
+    private Canvas? TargetLayerCanvas(WallpaperLayerItem layer) =>
+        !string.IsNullOrEmpty(layer.SplitBlockId) &&
+        _blockWallpaperHosts.TryGetValue(layer.SplitBlockId, out var blockHost) &&
+        blockHost.Child is Canvas blockCanvas
+            ? blockCanvas
+            : _wallpaperCanvas;
+
+    /// <summary>分体模式下为每个分块建立/定位自己的底图宿主（含独立画布，插在该块底色之上内容之下），并清理失效块。</summary>
+    private void EnsureBlockWallpaperHosts()
+    {
+        if (_mainWindow == null || _wallpaperCanvas == null)
+        {
+            return;
+        }
+
+        var anchors = _mainWindow.GetVisualDescendants().OfType<Border>()
+            .Where(x => IsSplitComponentBackground(x) && x.IsVisible && x.Bounds.Width > 0 && x.Bounds.Height > 0)
+            .ToArray();
+        var liveIds = new HashSet<string>();
+        foreach (var anchor in anchors)
+        {
+            var id = GetSplitBlockComponentId(anchor);
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+
+            liveIds.Add(id);
+            if (!_blockWallpaperHosts.TryGetValue(id, out var host))
+            {
+                if (anchor.Parent is not Panel panel)
+                {
+                    continue;
+                }
+
+                host = new Border
+                {
+                    IsHitTestVisible = false,
+                    ClipToBounds = true,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = new Canvas
+                    {
+                        IsHitTestVisible = false,
+                        ClipToBounds = true,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top
+                    }
+                };
+                // 插在该块底色 Border 之后（渲染顺序：底色 → 底图 → 内容）。
+                panel.Children.Insert(Math.Max(0, panel.Children.IndexOf(anchor) + 1), host);
+                _blockWallpaperHosts[id] = host;
+            }
+
+            PositionBlockWallpaperHost(host, anchor);
+        }
+
+        foreach (var stale in _blockWallpaperHosts.Keys.Where(k => !liveIds.Contains(k)).ToArray())
+        {
+            if (_blockWallpaperHosts.Remove(stale, out var staleHost) && staleHost.Parent is Panel stalePanel)
+            {
+                stalePanel.Children.Remove(staleHost);
+            }
+        }
+    }
+
+    /// <summary>把某个分块底图宿主定位到对应分块背景之上（同父面板绝对偏移），并跟随全局模糊。</summary>
+    private void PositionBlockWallpaperHost(Border host, Border anchor)
+    {
+        if (anchor.Parent is not Visual parent)
+        {
+            return;
+        }
+
+        var pos = anchor.TranslatePoint(new Point(0, 0), parent);
+        host.Width = anchor.Bounds.Width;
+        host.Height = anchor.Bounds.Height;
+        host.Margin = new Thickness(pos?.X ?? 0, pos?.Y ?? 0, 0, 0);
+        host.CornerRadius = new CornerRadius(_effectiveCornerRadius);
+        host.IsVisible = anchor.IsVisible && anchor.Bounds.Width > 0 && anchor.Bounds.Height > 0;
+        ApplyWallpaperBlurTo(host);
+    }
+
+    /// <summary>把全局底图模糊设置应用到单个宿主（0 = 不模糊；分体逐块宿主复用同款设置）。</summary>
+    private void ApplyWallpaperBlurTo(Border host)
+    {
+        var radius = Math.Max(0, _settings.WallpaperBlurRadius);
+        if (radius <= 0)
+        {
+            host.Effect = null;
+            return;
+        }
+
+        host.Effect = new BlurEffect { Radius = radius };
+    }
+
+    /// <summary>移除全部分块底图宿主。</summary>
+    private void RemoveBlockWallpaperHosts()
+    {
+        foreach (var host in _blockWallpaperHosts.Values)
+        {
+            if (host.Parent is Panel panel)
+            {
+                panel.Children.Remove(host);
+            }
+        }
+
+        _blockWallpaperHosts.Clear();
     }
 
     // ============ 动态视频填充（FFmpeg，专家模式）============
@@ -2800,7 +2935,11 @@ internal sealed class MainWindowStyleInjector : IDisposable
         var wantedIds = wanted.Select(l => l.Id).ToHashSet();
         foreach (var stale in _wallpaperLayerViews.Where(v => !wantedIds.Contains(v.Settings.Id)).ToArray())
         {
-            _wallpaperCanvas.Children.Remove(stale.Control);
+            if (stale.Control.Parent is Panel stalePanel)
+            {
+                stalePanel.Children.Remove(stale.Control);
+            }
+
             DisposeLayerView(stale);
             _wallpaperLayerViews.Remove(stale);
         }
@@ -2814,7 +2953,11 @@ internal sealed class MainWindowStyleInjector : IDisposable
                 var kindMismatch = (layer.Kind == WallpaperLayerKind.Image) != (view.ImageControl != null);
                 if (kindMismatch)
                 {
-                    _wallpaperCanvas.Children.Remove(view.Control);
+                    if (view.Control.Parent is Panel kindPanel)
+                    {
+                        kindPanel.Children.Remove(view.Control);
+                    }
+
                     DisposeLayerView(view);
                     _wallpaperLayerViews.Remove(view);
                 }
@@ -2824,6 +2967,18 @@ internal sealed class MainWindowStyleInjector : IDisposable
                     if (view.Control is WallpaperLayerVisual visual)
                     {
                         visual.Layer = layer;
+                    }
+
+                    // 分体多图层：SplitBlockId 变化时把控件移到目标画布（全局 / 分块）。
+                    var target = TargetLayerCanvas(layer);
+                    if (target != null && view.Control.Parent != target)
+                    {
+                        if (view.Control.Parent is Panel movePanel)
+                        {
+                            movePanel.Children.Remove(view.Control);
+                        }
+
+                        target.Children.Add(view.Control);
                     }
 
                     continue;
@@ -2848,7 +3003,7 @@ internal sealed class MainWindowStyleInjector : IDisposable
                     Layer = layer
                 };
             _wallpaperLayerViews.Add(new WallpaperLayerView { Settings = layer, Control = control });
-            _wallpaperCanvas.Children.Add(control);
+            TargetLayerCanvas(layer)?.Children.Add(control);
         }
 
         for (var i = 0; i < _wallpaperLayerViews.Count; i++)
@@ -2877,17 +3032,31 @@ internal sealed class MainWindowStyleInjector : IDisposable
             return;
         }
 
-        var w = _wallpaperHost.Bounds.Width;
-        var h = _wallpaperHost.Bounds.Height;
-        if (w <= 0 || h <= 0)
-        {
-            return;
-        }
-
+        var globalW = _wallpaperHost.Bounds.Width;
+        var globalH = _wallpaperHost.Bounds.Height;
         foreach (var view in _wallpaperLayerViews)
         {
             var layer = view.Settings;
             var control = view.Control;
+            // 布局基准：分体块图层按对应块宿主尺寸（块内锚点相对定位）；整岛图层按联合宿主尺寸。
+            double w, h;
+            if (!string.IsNullOrEmpty(layer.SplitBlockId) &&
+                _blockWallpaperHosts.TryGetValue(layer.SplitBlockId, out var blockHost))
+            {
+                w = blockHost.Bounds.Width;
+                h = blockHost.Bounds.Height;
+            }
+            else
+            {
+                w = globalW;
+                h = globalH;
+            }
+
+            if (w <= 0 || h <= 0)
+            {
+                continue; // 目标容器尚未完成布局，跳过本次。
+            }
+
             var aspect = view.Bitmap is { PixelSize.Width: > 0, PixelSize.Height: > 0 }
                 ? (double)view.Bitmap.PixelSize.Width / view.Bitmap.PixelSize.Height
                 : (double?)null;

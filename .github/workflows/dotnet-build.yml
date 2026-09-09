@@ -1,0 +1,36 @@
+# 仿照 SystemTools（https://github.com/Programmer-MrWang/SystemTools）的插件构建工作流，
+# 为 ClassIslandInjector 定制的版本：在 Windows 上还原、发布并打出 .cipx 插件包，上传为构建产物。
+name: Build Project
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build CIPX
+        run: dotnet publish -p:CreateCipx=true --configuration Release --no-restore
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: classisland-injector-cipx-artifacts
+          path: |
+            cipx/ClassIslandInjector.cipx
+            cipx/checksums.md

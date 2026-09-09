@@ -18,6 +18,11 @@ namespace ClassIslandInjector.Views;
 /// </summary>
 internal sealed partial class WallpaperLayerEditorWindow
 {
+    /// <summary>「目标分块」下拉（分体多图层）：整岛或某个分体块（组件 GUID）。</summary>
+    private readonly ComboBox _splitBlockBox = new() { MinWidth = 180 };
+    /// <summary>「目标分块」行（未选中图层时隐藏）。</summary>
+    private Control _splitBlockItem = null!;
+
     /// <summary>纯图标工具栏按钮（带提示文字）。</summary>
     private static Slider SliderControl(double min, double max, double tick) => new()
     {
@@ -151,6 +156,32 @@ internal sealed partial class WallpaperLayerEditorWindow
         _heightItem.IsVisible = custom;
     }
 
+    /// <summary>重建「目标分块」下拉选项（整岛 + 当前主界面各分体块），并尽量保持既有选择。</summary>
+    private void RefreshSplitBlockOptions()
+    {
+        var current = _splitBlockBox.SelectedItem is Pick<string> cur ? cur.Value : "";
+        var items = new List<Pick<string>> { new("", "整岛") };
+        foreach (var b in MainWindowStyleInjector.EnumerateSplitBlocks())
+        {
+            items.Add(new Pick<string>(b.Id, b.Name));
+        }
+
+        _splitBlockBox.ItemsSource = items;
+        _splitBlockBox.SelectedItem = items.FirstOrDefault(p => p.Value == current) ?? items[0];
+    }
+
+    /// <summary>把「目标分块」下拉同步为选中图层的 <see cref="WallpaperLayerItem.SplitBlockId"/>。</summary>
+    private void UpdateSplitBlockSelection()
+    {
+        if (_splitBlockBox.ItemsSource is not IReadOnlyList<Pick<string>> items)
+        {
+            return;
+        }
+
+        var id = _canvas.SelectedLayer?.SplitBlockId ?? "";
+        _splitBlockBox.SelectedItem = items.FirstOrDefault(p => p.Value == id) ?? items.FirstOrDefault(p => p.Value == "");
+    }
+
     /// <summary>SMTC 图层是否处于「默认处理」模式（仅透明度/显示方式可改）。</summary>
     private static bool IsSmtcDefaultMode(WallpaperLayerItem layer) =>
         layer.Source == WallpaperSource.SmtcAlbum && layer.SmtcMode == WallpaperLayerSmtcMode.Default;
@@ -190,6 +221,7 @@ internal sealed partial class WallpaperLayerEditorWindow
             if (layer == null)
             {
                 _nameItem.IsVisible = false;
+                _splitBlockItem.IsVisible = false;
                 _opacityItem.IsVisible = false;
                 _displayModeItem.IsVisible = false;
                 _smtcModeItem.IsVisible = false;
@@ -248,6 +280,8 @@ internal sealed partial class WallpaperLayerEditorWindow
             _nameItem.IsVisible = true;
             _opacityItem.IsVisible = true;
             _nameBox.IsEnabled = true;
+            _splitBlockItem.IsVisible = true;
+            UpdateSplitBlockSelection();
             _opacitySlider.IsEnabled = true;
             _displayModeBox.IsEnabled = layer.Kind == WallpaperLayerKind.Image;
             _smtcModeBox.IsEnabled = true;
@@ -959,6 +993,21 @@ internal sealed partial class WallpaperLayerEditorWindow
         // 「常规」分组：名称 + SMTC / 不透明度 / 显示方式。
         _nameItem = SettingsRow("名称", _nameBox);
         generalPage.Children.Add(_nameItem);
+        // 目标分块（分体多图层）：整岛或某个分体块；分体模式下运行时按块各自绘制。
+        RefreshSplitBlockOptions();
+        _splitBlockItem = SettingsRow("目标分块", _splitBlockBox);
+        generalPage.Children.Add(_splitBlockItem);
+        _splitBlockBox.SelectionChanged += (_, _) =>
+        {
+            // SelectionChanged 在程序化回填时会以 _updatingInspector 抑制，此处仅处理用户选择。
+            if (_updatingInspector)
+            {
+                return;
+            }
+
+            ApplyToSelected(l => l.SplitBlockId = Selected(_splitBlockBox, ""));
+        };
+
         _smtcModeItem = SettingsRow("SMTC 模式", _smtcModeBox);
         generalPage.Children.Add(_smtcModeItem);
         _smtcHidePausedItem = SettingsRow("暂停/停止时隐藏", _smtcHidePausedToggle);
