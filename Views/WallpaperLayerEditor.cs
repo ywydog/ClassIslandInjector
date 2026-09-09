@@ -178,11 +178,11 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     private Control _textAlignItem = null!;
 
     // ---- 状态 ----
-    private List<WallpaperLayerItem> _layers = [];
-    private readonly WallpaperUndoHistory<List<WallpaperLayerItem>> _history;
+    /// <summary>图层文档（单一数据源）：统一持有图层列表、撤销/重做历史与未保存标记。</summary>
+    private readonly WallpaperLayerDocument _document;
+    /// <summary>当前图层列表（<c>_document.Layers</c> 的别名，供既有代码原地引用；保持单一数据源）。</summary>
+    private List<WallpaperLayerItem> _layers;
     private bool _updatingInspector;
-    /// <summary>是否存在未保存的修改（关闭确认时提示）。</summary>
-    private bool _dirty;
     /// <summary>窗口内容根。</summary>
     private Grid? _contentGrid;
     /// <summary>舞台 + 右侧栏所在的主体网格（提升为字段以在窗口缩放时约束其高度）。</summary>
@@ -256,12 +256,21 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         EditorMica.EnableMica(this);
 
         // 撤销 / 重做历史：捕获当前图层列表的深拷贝作为快照；连续高频变更（<500ms）合并为一条。
-        _history = new WallpaperUndoHistory<List<WallpaperLayerItem>>(
-            capacity: 100,
-            snapshot: () => _layers.Select(l => l.Clone()).ToList());
-        _history.Changed += UpdateUndoRedoState;
-
-        _layers = InjectorRuntime.Settings.WallpaperLayers.Select(l => l.Clone()).ToList();
+        _document = new WallpaperLayerDocument(
+            InjectorRuntime.Settings.WallpaperLayers.Select(l => l.Clone()).ToList());
+        _layers = _document.Layers;
+        // UI 统一刷新入口：文档任何变更（增删 / 编辑 / 撤销 / 重做 / 保存）都会触发，
+        // 收敛原先分散的手动刷新链（RefreshLayerList / RefreshInspector / UpdateStatus）。
+        _document.Changed += () =>
+        {
+            _canvas.Layers = _layers;
+            RefreshLayerList();
+            RefreshInspector();
+            UpdateStatus();
+            UpdateGroupButtons();
+            UpdateLayerActionButtons();
+        };
+        _document.UndoRedoChanged += UpdateUndoRedoState;
         var islandSize = InjectorRuntime.GetCurrentIslandSize();
         _canvas.SetIslandSize(islandSize?.Width > 0 ? islandSize.Value.Width : DefaultIslandWidth,
             islandSize?.Height > 0 ? islandSize.Value.Height : DefaultIslandHeight);
@@ -426,7 +435,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         _canvas.EditStarted += () =>
         {
             PushUndo();
-            _dirty = true;
+            _document.MarkDirty();
         };
         _canvas.Edited += () =>
         {
@@ -888,7 +897,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             RasterizeLayer(layer);
         }
 
-        _dirty = true;
+        _document.MarkDirty();
         // 触发 RefreshImages + SyncImageControls，按新 Path 加载位图。
         _canvas.Layers = _layers;
         RefreshLayerList();
@@ -978,7 +987,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     internal void ApplyLayerFilter(Action apply)
     {
         apply();
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Refresh();
         RefreshInspector();
         UpdateStatus();
@@ -993,7 +1002,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             _canvas.BakeAdjustmentsToSelection();
         }
 
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Refresh();
         RefreshInspector();
         UpdateStatus();
@@ -2206,7 +2215,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             edit(layer);
         }
 
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Refresh();
         RefreshInspector();
         UpdateStatus();
@@ -2214,52 +2223,25 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
 
     // ============ 撤销 / 重做 / 保存 ============
 
-    private DateTime? _lastUndoPushAt;
-
     private void PushUndo()
     {
-        var now = DateTime.UtcNow;
-        // 合并高频变更（滑块拖动 / 连续输入 / 方向键长按等）：500ms 内的连续 PushUndo
-        // 视为同一次编辑会话，只保留首个快照，避免一次操作压入几十个快照挤掉早期历史。
-        // 离散操作（新建 / 删除 / 贴纸等）间隔通常大于 500ms，不会被误合并。
-        if (_history.CanUndo && _lastUndoPushAt != null && (now - _lastUndoPushAt.Value).TotalMilliseconds < 500)
-        {
-            _lastUndoPushAt = now;
-            return;
-        }
-
-        _lastUndoPushAt = now;
-        _history.PushDiscrete(now);
+        _document.Push();
     }
 
     private void Undo()
     {
-        var target = _history.Undo(() => _layers.Select(l => l.Clone()).ToList());
-        if (target == null)
+        if (_document.Undo())
         {
-            return;
+            _layers = _document.Layers;
         }
-
-        _layers = target;
-        _canvas.Layers = _layers;
-        RefreshLayerList();
-        RefreshInspector();
-        UpdateStatus();
     }
 
     private void Redo()
     {
-        var target = _history.Redo(() => _layers.Select(l => l.Clone()).ToList());
-        if (target == null)
+        if (_document.Redo())
         {
-            return;
+            _layers = _document.Layers;
         }
-
-        _layers = target;
-        _canvas.Layers = _layers;
-        RefreshLayerList();
-        RefreshInspector();
-        UpdateStatus();
     }
 
     private async void Save()
@@ -2320,7 +2302,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         settings.WallpaperLayers = _layers.Select(l => l.Clone()).ToList();
         settings.EndUpdate();
         InjectorRuntime.SaveAndApply();
-        _dirty = false;
+        _document.MarkSaved();
         _statusText.Text = $"已保存并应用：共 {_layers.Count} 个图片图层 · 层级「{DisplayZOrder(_canvas.ZOrder)}」。";
         UpdateUndoRedoState();
         // 向前推动教程的「保存」等待句。
@@ -2335,8 +2317,8 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             return;
         }
 
-        _undoButton.IsEnabled = _history.CanUndo;
-        _redoButton.IsEnabled = _history.CanRedo;
+        _undoButton.IsEnabled = _document.CanUndo;
+        _redoButton.IsEnabled = _document.CanRedo;
     }
 
     /// <summary>按当前选中状态同步「组合 / 取消组合」按钮：单个或无选中 → 都禁用；
@@ -2438,7 +2420,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             AnchorY = WallpaperLayerAnchorY.Center
         };
         _layers.Add(layer);
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Layers = _layers; // 触发 RefreshImages 加载位图
         // 按图片宽高比设定初始尺寸（高 = 主界面 0.55，宽按比例），并居中放置。
         if (_canvas.GetThumbnail(layer.Id) is { } bitmap && bitmap.PixelSize.Height > 0)
@@ -2499,7 +2481,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     {
         PushUndo();
         _layers.Add(layer);
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Layers = _layers;
         _canvas.Select(layer.Id);
         RefreshLayerList();
@@ -2560,7 +2542,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             AnchorY = WallpaperLayerAnchorY.Center
         };
         _layers.Add(layer);
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Layers = _layers; // 触发 RefreshImages 加载位图
         // 按贴纸宽高比设定初始尺寸（高 = 主界面 0.8，宽按比例），并居中放置。
         if (_canvas.GetThumbnail(layer.Id) is { } bitmap && bitmap.PixelSize.Height > 0)
@@ -2902,7 +2884,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
                 // 背景层级拖拽也会改变状态：补压撤销，与图层拖拽排序保持一致。
                 PushUndo();
                 _canvas.ZOrder = target;
-                _dirty = true;
+                _document.MarkDirty();
                 RefreshLayerList();
             }
 
@@ -2931,7 +2913,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         _reorderIndicator.IsVisible = false;
         if (insertIndex != sourceIndex)
         {
-            _dirty = true;
+            _document.MarkDirty();
             _layers.RemoveAt(sourceIndex);
             var adjusted = insertIndex > sourceIndex ? insertIndex - 1 : insertIndex;
             _layers.Insert(Math.Clamp(adjusted, 0, _layers.Count), layer);
@@ -3064,7 +3046,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     {
         PushUndo();
         layer.Visible = !layer.Visible;
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Refresh();
         RefreshLayerList();
     }
@@ -3121,7 +3103,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             _layers.Remove(l);
         }
 
-        _dirty = true;
+        _document.MarkDirty();
         _canvas.Layers = _layers;
         _canvas.Select(null);
         RefreshLayerList();
@@ -3427,7 +3409,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
 
     private async void OnClosingConfirm(object? sender, WindowClosingEventArgs e)
     {
-        if (!_dirty)
+        if (!_document.IsDirty)
         {
             return;
         }
@@ -3450,12 +3432,12 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         if (result == ContentDialogResult.Primary)
         {
             Save();
-            _dirty = false;
+            _document.MarkSaved();
             Close();
         }
         else if (result == ContentDialogResult.Secondary)
         {
-            _dirty = false;
+            _document.MarkSaved();
             Close();
         }
     }
