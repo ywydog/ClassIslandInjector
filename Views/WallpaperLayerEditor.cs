@@ -2469,12 +2469,11 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         }
     }
 
-    /// <summary>新建图层的公共骨架：压撤销、加入列表、刷新画布并选中新图层。
-    /// 撤销历史 / 图层面板 / 检查器 / 状态栏由 <see cref="_document"/> 统一管理刷新。</summary>
+    /// <summary>新建图层的公共骨架：压撤销、加入列表、选中新图层。
+    /// 画布刷新 / 图层面板 / 检查器 / 状态栏由 <see cref="_document"/> 的 Changed 事件统一处理。</summary>
     private WallpaperLayerItem AddLayer(WallpaperLayerItem layer)
     {
         _document.AddLayer(layer);
-        _canvas.Layers = _layers;
         _canvas.Select(layer.Id);
         return layer;
     }
