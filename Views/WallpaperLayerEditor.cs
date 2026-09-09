@@ -2476,17 +2476,13 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         }
     }
 
-    /// <summary>新建图层的公共骨架：压撤销、加入列表、刷新画布/图层面板/检查器并选中新图层。</summary>
+    /// <summary>新建图层的公共骨架：压撤销、加入列表、刷新画布并选中新图层。
+    /// 撤销历史 / 图层面板 / 检查器 / 状态栏由 <see cref="_document"/> 统一管理刷新。</summary>
     private WallpaperLayerItem AddLayer(WallpaperLayerItem layer)
     {
-        PushUndo();
-        _layers.Add(layer);
-        _document.MarkDirty();
+        _document.AddLayer(layer);
         _canvas.Layers = _layers;
         _canvas.Select(layer.Id);
-        RefreshLayerList();
-        RefreshInspector();
-        UpdateStatus();
         return layer;
     }
 
@@ -2529,8 +2525,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
     /// <summary>把下载到本地缓存的贴纸插入为新的图片图层（按贴纸比例自动设定初始尺寸）。</summary>
     private void AddStickerLayer(string path, string name)
     {
-        PushUndo();
-        var layer = new WallpaperLayerItem
+        var layer = AddLayer(new WallpaperLayerItem
         {
             Id = Guid.NewGuid().ToString("N"),
             Name = name,
@@ -2540,10 +2535,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             DisplayMode = WallpaperDisplayMode.Fit,
             AnchorX = WallpaperLayerAnchorX.Center,
             AnchorY = WallpaperLayerAnchorY.Center
-        };
-        _layers.Add(layer);
-        _document.MarkDirty();
-        _canvas.Layers = _layers; // 触发 RefreshImages 加载位图
+        });
         // 按贴纸宽高比设定初始尺寸（高 = 主界面 0.8，宽按比例），并居中放置。
         if (_canvas.GetThumbnail(layer.Id) is { } bitmap && bitmap.PixelSize.Height > 0)
         {
@@ -2553,11 +2545,6 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             layer.Height = h;
             _canvas.Refresh();
         }
-
-        _canvas.Select(layer.Id);
-        RefreshLayerList();
-        RefreshInspector();
-        UpdateStatus();
     }
 
     private void ResetIslandSize()

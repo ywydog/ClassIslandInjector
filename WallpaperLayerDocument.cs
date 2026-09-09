@@ -71,6 +71,29 @@ public sealed class WallpaperLayerDocument
         Changed?.Invoke();
     }
 
+    /// <summary>新增一个图层到列表末尾，压撤销点、标记未保存并触发刷新。</summary>
+    public void AddLayer(WallpaperLayerItem layer)
+    {
+        Push();
+        _layers.Add(layer);
+        MarkDirty();
+        Changed?.Invoke();
+    }
+
+    /// <summary>从列表移除指定的图层，压撤销点、标记未保存并触发刷新。图层不存在时返回 false。</summary>
+    public bool RemoveLayer(WallpaperLayerItem layer)
+    {
+        if (!_layers.Remove(layer))
+        {
+            return false;
+        }
+
+        Push();
+        MarkDirty();
+        Changed?.Invoke();
+        return true;
+    }
+
     /// <summary>压入撤销点并标记未保存（拥有自动合并高频变更的 Push）。若与上次间隔很短则合并。</summary>
     public void Push()
     {
