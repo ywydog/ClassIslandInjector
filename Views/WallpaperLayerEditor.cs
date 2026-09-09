@@ -179,9 +179,9 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
 
     // ---- 状态 ----
     private List<WallpaperLayerItem> _layers = [];
-    private readonly List<List<WallpaperLayerItem>> _undoStack = [];
-    private readonly List<List<WallpaperLayerItem>> _redoStack = [];
+    private readonly WallpaperUndoHistory<List<WallpaperLayerItem>> _history;
     private bool _updatingInspector;
+    /// <summary>是否存在未保存的修改（关闭确认时提示）。</summary>
     private bool _dirty;
     /// <summary>窗口内容根。</summary>
     private Grid? _contentGrid;
@@ -254,6 +254,12 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         // 太晚会整窗半透明看不清）；用半透明主题基底分层，侧栏和画布再使用独立表面，
         // 避免深色主题整窗一片灰。
         EditorMica.EnableMica(this);
+
+        // 撤销 / 重做历史：捕获当前图层列表的深拷贝作为快照；连续高频变更（<500ms）合并为一条。
+        _history = new WallpaperUndoHistory<List<WallpaperLayerItem>>(
+            capacity: 100,
+            snapshot: () => _layers.Select(l => l.Clone()).ToList());
+        _history.Changed += UpdateUndoRedoState;
 
         _layers = InjectorRuntime.Settings.WallpaperLayers.Select(l => l.Clone()).ToList();
         var islandSize = InjectorRuntime.GetCurrentIslandSize();
@@ -2208,7 +2214,7 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
 
     // ============ 撤销 / 重做 / 保存 ============
 
-    private DateTime _lastUndoPushAt = DateTime.MinValue;
+    private DateTime? _lastUndoPushAt;
 
     private void PushUndo()
     {
@@ -2216,57 +2222,44 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
         // 合并高频变更（滑块拖动 / 连续输入 / 方向键长按等）：500ms 内的连续 PushUndo
         // 视为同一次编辑会话，只保留首个快照，避免一次操作压入几十个快照挤掉早期历史。
         // 离散操作（新建 / 删除 / 贴纸等）间隔通常大于 500ms，不会被误合并。
-        if (_undoStack.Count > 0 && (now - _lastUndoPushAt).TotalMilliseconds < 500)
+        if (_history.CanUndo && _lastUndoPushAt != null && (now - _lastUndoPushAt.Value).TotalMilliseconds < 500)
         {
             _lastUndoPushAt = now;
             return;
         }
 
         _lastUndoPushAt = now;
-        _undoStack.Add(_layers.Select(l => l.Clone()).ToList());
-        if (_undoStack.Count > 100)
-        {
-            _undoStack.RemoveAt(0);
-        }
-
-        _redoStack.Clear();
-        UpdateUndoRedoState();
+        _history.PushDiscrete(now);
     }
 
     private void Undo()
     {
-        if (_undoStack.Count == 0)
+        var target = _history.Undo(() => _layers.Select(l => l.Clone()).ToList());
+        if (target == null)
         {
             return;
         }
 
-        _redoStack.Add(_layers.Select(l => l.Clone()).ToList());
-        _layers = _undoStack[^1];
-        _undoStack.RemoveAt(_undoStack.Count - 1);
+        _layers = target;
         _canvas.Layers = _layers;
-        _dirty = true;
         RefreshLayerList();
         RefreshInspector();
         UpdateStatus();
-        UpdateUndoRedoState();
     }
 
     private void Redo()
     {
-        if (_redoStack.Count == 0)
+        var target = _history.Redo(() => _layers.Select(l => l.Clone()).ToList());
+        if (target == null)
         {
             return;
         }
 
-        _undoStack.Add(_layers.Select(l => l.Clone()).ToList());
-        _layers = _redoStack[^1];
-        _redoStack.RemoveAt(_redoStack.Count - 1);
+        _layers = target;
         _canvas.Layers = _layers;
-        _dirty = true;
         RefreshLayerList();
         RefreshInspector();
         UpdateStatus();
-        UpdateUndoRedoState();
     }
 
     private async void Save()
@@ -2342,8 +2335,8 @@ internal sealed class WallpaperLayerEditorWindow : MyWindow
             return;
         }
 
-        _undoButton.IsEnabled = _undoStack.Count > 0;
-        _redoButton.IsEnabled = _redoStack.Count > 0;
+        _undoButton.IsEnabled = _history.CanUndo;
+        _redoButton.IsEnabled = _history.CanRedo;
     }
 
     /// <summary>按当前选中状态同步「组合 / 取消组合」按钮：单个或无选中 → 都禁用；
