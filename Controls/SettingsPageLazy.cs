@@ -84,27 +84,33 @@ public sealed class SettingsPageLazy : Grid
         Dispatcher.UIThread.Post(() =>
         {
             _content.Content = ContentFactory?.Invoke();
-            FadeTo(_loader, 0, FadeMs, () => _loader.IsVisible = false);
-            FadeTo(_content, 1, FadeMs);
+            CrossFade();
         }, DispatcherPriority.Loaded);
     }
 
-    /// <summary>用 DispatcherTimer 逐帧驱动一次性透明度动画（可取消），完成为 onDone。</summary>
-    private void FadeTo(Control control, double to, double durationMs, Action? onDone = null)
+    /// <summary>
+    /// 用单个 DispatcherTimer 同时驱动加载层渐隐与内容层渐入，完成后隐藏加载层。
+    /// （不能对两层各起一个定时器：它们共享同一 _fade 字段，后者会把前者取消掉，
+    /// 导致加载层永远停在全透明度状态、进度条常驻。）
+    /// </summary>
+    private void CrossFade()
     {
         _fade?.Stop();
-        var from = control.Opacity;
+        _loader.Opacity = 1;
+        _content.Opacity = 0;
         var startedAt = Environment.TickCount64;
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         timer.Tick += (_, _) =>
         {
-            var p = Math.Min(1.0, (Environment.TickCount64 - startedAt) / Math.Max(1.0, durationMs));
-            control.Opacity = from + (to - from) * p;
+            var p = Math.Min(1.0, (Environment.TickCount64 - startedAt) / Math.Max(1.0, FadeMs));
+            _loader.Opacity = 1 - p;
+            _content.Opacity = p;
             if (p >= 1.0)
             {
-                control.Opacity = to;
+                _loader.Opacity = 0;
+                _content.Opacity = 1;
+                _loader.IsVisible = false;
                 timer.Stop();
-                onDone?.Invoke();
             }
         };
         _fade = timer;
